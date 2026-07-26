@@ -20,7 +20,7 @@ Fases según `docs/spec.md` §10:
 | # | Fase | Estado |
 |---|------|--------|
 | 1 | Prototipo de video local (Server) | ✅ Completa |
-| 2 | Client mínimo (reproduce archivo pregrabado) | 🚧 En progreso (código listo, falta validar en Windows) |
+| 2 | Client mínimo (reproduce archivo pregrabado) | ✅ Completa |
 | 3 | Conexión de red básica, sin encriptar | ⬜ Pendiente |
 | 4 | Multi-monitor | ⬜ Pendiente |
 | 5 | Descubrimiento automático (mDNS) | ⬜ Pendiente |

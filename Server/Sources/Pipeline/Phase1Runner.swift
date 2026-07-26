@@ -75,7 +75,7 @@ final class Phase1Runner: ObservableObject {
         let desktop = FileManager.default.urls(for: .desktopDirectory, in: .userDomainMask).first!
         let formatter = DateFormatter()
         formatter.dateFormat = "yyyy-MM-dd_HH-mm-ss"
-        let name = "MacExtendPhase1_\(formatter.string(from: Date())).mov"
+        let name = "MacExtendPhase1_\(formatter.string(from: Date())).mp4"
         return desktop.appendingPathComponent(name)
     }
 }

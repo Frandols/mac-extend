@@ -20,7 +20,7 @@ Fases según `docs/spec.md` §10:
 | # | Fase | Estado |
 |---|------|--------|
 | 1 | Prototipo de video local (Server) | ✅ Completa |
-| 2 | Client mínimo (reproduce archivo pregrabado) | ⬜ Pendiente |
+| 2 | Client mínimo (reproduce archivo pregrabado) | 🚧 En progreso (código listo, falta validar en Windows) |
 | 3 | Conexión de red básica, sin encriptar | ⬜ Pendiente |
 | 4 | Multi-monitor | ⬜ Pendiente |
 | 5 | Descubrimiento automático (mDNS) | ⬜ Pendiente |
@@ -53,3 +53,18 @@ La creación de ghost displays usa `CGVirtualDisplay`, una API privada de CoreGr
 involucrado, pero al no ser pública, Apple puede cambiar sus internals entre versiones
 de macOS sin aviso. Si falla en runtime, el plan B documentado en la spec es implementar
 un driver de pantalla virtual vía DriverKit.
+
+## Client — desarrollo
+
+Requiere el [.NET 8 SDK](https://dotnet.microsoft.com/download) (o superior) en Windows.
+
+```bash
+cd Client
+dotnet build
+dotnet run --project MacExtendClient -- "C:\ruta\al\video.mp4"
+```
+
+Sin argumento, busca `sample.mp4` junto al ejecutable. El pipeline de decode/render usa
+Media Foundation (`IMFMediaEngine`, con Device Manager DXGI para decode por hardware) y
+Direct3D11 (swapchain propio vía `HwndHost`, sin pasar por la composición software de
+WPF), a través de los paquetes [Vortice.Windows](https://github.com/amerkoleci/Vortice.Windows).

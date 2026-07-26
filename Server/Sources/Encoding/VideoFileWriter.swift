@@ -15,9 +15,11 @@ enum VideoFileWriterError: Error, LocalizedError {
     }
 }
 
-/// Codifica frames capturados a un archivo .mov en H.264. En Apple Silicon,
+/// Codifica frames capturados a un archivo .mp4 en H.264. En Apple Silicon,
 /// AVAssetWriter delega la compresión H.264 al encoder de hardware (VideoToolbox)
 /// automáticamente, sin necesidad de manejar VTCompressionSession a mano.
+/// Se usa .mp4 (no .mov) para que el demuxer de Media Foundation en Windows lo
+/// reconozca sin ambigüedad.
 final class VideoFileWriter {
 
     let outputURL: URL
@@ -29,7 +31,7 @@ final class VideoFileWriter {
     init(outputURL: URL, width: Int, height: Int, fps: Int, bitrate: Int = 12_000_000) throws {
         self.outputURL = outputURL
 
-        writer = try AVAssetWriter(url: outputURL, fileType: .mov)
+        writer = try AVAssetWriter(url: outputURL, fileType: .mp4)
 
         let outputSettings: [String: Any] = [
             AVVideoCodecKey: AVVideoCodecType.h264,

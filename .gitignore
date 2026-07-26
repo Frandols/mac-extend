@@ -1,0 +1,24 @@
+# Xcode / Swift
+.DS_Store
+*.xcodeproj/*
+!*.xcodeproj/project.pbxproj
+!*.xcodeproj/xcshareddata
+*.xcuserstate
+xcuserdata/
+DerivedData/
+.build/
+*.moved-aside
+*.hmap
+*.ipa
+*.dSYM.zip
+*.dSYM
+
+# .NET / Windows Client
+bin/
+obj/
+*.user
+*.suo
+.vs/
+
+# Misc
+*.log

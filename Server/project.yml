@@ -1,0 +1,29 @@
+name: MacExtendServer
+options:
+  bundleIdPrefix: com.macextend
+  deploymentTarget:
+    macOS: "14.0"
+  createIntermediateGroups: true
+
+targets:
+  MacExtendServer:
+    type: application
+    platform: macOS
+    deploymentTarget: "14.0"
+    sources:
+      - path: Sources
+    settings:
+      base:
+        PRODUCT_BUNDLE_IDENTIFIER: com.macextend.server
+        PRODUCT_NAME: MacExtendServer
+        MARKETING_VERSION: "0.1.0"
+        CURRENT_PROJECT_VERSION: "1"
+        SWIFT_VERSION: "5.0"
+        ARCHS: arm64
+        ONLY_ACTIVE_ARCH: YES
+        GENERATE_INFOPLIST_FILE: YES
+        INFOPLIST_KEY_CFBundleDisplayName: MacExtend Server
+        INFOPLIST_KEY_NSHumanReadableCopyright: ""
+        INFOPLIST_KEY_LSApplicationCategoryType: public.app-category.utilities
+        SWIFT_OBJC_BRIDGING_HEADER: Sources/GhostDisplay/CGVirtualDisplay-Bridging-Header.h
+        CODE_SIGN_STYLE: Automatic

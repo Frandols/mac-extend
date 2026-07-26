@@ -1,4 +1,5 @@
 using System.IO;
+using System.Threading.Tasks;
 using System.Windows;
 using System.Windows.Media;
 using MacExtendClient.Video;
@@ -24,8 +25,15 @@ public partial class MainWindow : Window
         Closed += OnClosed;
     }
 
-    private void OnLoaded(object sender, RoutedEventArgs e)
+    private bool _loading;
+
+    private async void OnLoaded(object sender, RoutedEventArgs e)
     {
+        // Evita que un segundo Loaded (o un F5 apurado mientras esto sigue
+        // inicializando) dispare una segunda carga en la misma ventana.
+        if (_loading) return;
+        _loading = true;
+
         WindowStyle = WindowStyle.None;
         ResizeMode = ResizeMode.NoResize;
         Topmost = true;
@@ -52,10 +60,14 @@ public partial class MainWindow : Window
         _videoHost = new VideoHost(_device, width, height);
         Content = _videoHost;
 
+        // La apertura del archivo (VideoPlayer) espera de forma bloqueante al evento
+        // CanPlay de Media Foundation; se corre en un thread de pool para que la
+        // ventana no quede congelada/sin pintar mientras tanto.
         string videoPath = ResolveVideoPath();
+        ID3D11Device device2 = _device;
         try
         {
-            _videoPlayer = new VideoPlayer(_device, videoPath);
+            _videoPlayer = await Task.Run(() => new VideoPlayer(device2, videoPath));
         }
         catch (Exception ex)
         {

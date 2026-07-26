@@ -1,0 +1,8 @@
+{
+  "profiles": {
+    "MacExtendClient": {
+      "commandName": "Project",
+      "commandLineArgs": "\"C:\\Users\\Frand\\Videos\\CAMBIAR_ESTE_NOMBRE.mp4\""
+    }
+  }
+}

@@ -12,6 +12,7 @@ struct MacExtendServerApp: App {
 
 struct Phase1TestView: View {
     @StateObject private var runner = Phase1Runner()
+    @StateObject private var streamingRunner = StreamingRunner()
 
     var body: some View {
         VStack(spacing: 16) {
@@ -50,8 +51,33 @@ struct Phase1TestView: View {
                     }
                 }
             }
+
+            Divider()
+
+            Text("Fase 3a — Streaming en vivo")
+                .font(.title3.bold())
+
+            Text("Escucha en el puerto 7000. Al conectarse un client, crea el ghost display y transmite por RTP/UDP al puerto 5004.")
+                .font(.callout)
+                .foregroundStyle(.secondary)
+                .multilineTextAlignment(.center)
+                .frame(maxWidth: 360)
+
+            Text(streamingRunner.status)
+                .font(.body.monospaced())
+                .multilineTextAlignment(.center)
+                .frame(maxWidth: 420)
+
+            Button(streamingRunner.isRunning ? "Stop Streaming Server" : "Start Streaming Server") {
+                if streamingRunner.isRunning {
+                    streamingRunner.stop()
+                } else {
+                    streamingRunner.start()
+                }
+            }
+            .buttonStyle(.borderedProminent)
         }
         .padding(32)
-        .frame(width: 480, height: 320)
+        .frame(width: 500, height: 520)
     }
 }

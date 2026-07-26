@@ -1,0 +1,152 @@
+import Network
+
+/// Escucha conexiones TCP de control (v1: un solo client a la vez). Al conectarse un
+/// client, crea el ghost display y arranca captura+encoding+envío RTP hacia esa IP; al
+/// desconectarse, destruye todo — así el ghost display nunca queda huérfano.
+///
+/// No es @MainActor a propósito: NWListener/NWConnection invocan sus callbacks
+/// (@Sendable) en la queue que se les pasa (acá siempre `.main`), pero el type checker
+/// no puede inferir esa garantía, así que se maneja como una clase plana.
+final class StreamingController {
+
+    private let controlPort: UInt16
+    private let videoPort: UInt16
+    private let width: Int
+    private let height: Int
+    private let fps: Int
+
+    private var listener: NWListener?
+    private var activeConnection: NWConnection?
+    private var sender: RtpH264Sender?
+
+    private let ghostDisplay = GhostDisplayManager()
+    private let capture = DisplayCapture()
+    private let encoder = H264LiveEncoder()
+
+    var onStatusChange: ((String) -> Void)?
+
+    init(controlPort: UInt16 = 7000, videoPort: UInt16 = 5004, width: Int = 1920, height: Int = 1080, fps: Int = 30) {
+        self.controlPort = controlPort
+        self.videoPort = videoPort
+        self.width = width
+        self.height = height
+        self.fps = fps
+    }
+
+    func start() throws {
+        let listener = try NWListener(using: .tcp, on: NWEndpoint.Port(rawValue: controlPort)!)
+        listener.newConnectionHandler = { [weak self] connection in
+            self?.handleNewConnection(connection)
+        }
+        listener.stateUpdateHandler = { [weak self] state in
+            if case .failed(let error) = state {
+                self?.onStatusChange?("Error del listener: \(error.localizedDescription)")
+            }
+        }
+        listener.start(queue: .main)
+        self.listener = listener
+        onStatusChange?("Escuchando conexiones en el puerto \(controlPort)…")
+    }
+
+    func stop() {
+        listener?.cancel()
+        listener = nil
+        teardownStream()
+        onStatusChange?("Detenido.")
+    }
+
+    private func handleNewConnection(_ connection: NWConnection) {
+        guard activeConnection == nil else {
+            // v1: un solo client a la vez (spec §6).
+            connection.cancel()
+            return
+        }
+
+        guard case .hostPort(let host, _) = connection.endpoint else {
+            connection.cancel()
+            return
+        }
+
+        connection.stateUpdateHandler = { [weak self] state in
+            switch state {
+            case .ready:
+                self?.startStreaming(to: host)
+            case .failed, .cancelled:
+                self?.handleDisconnect()
+            default:
+                break
+            }
+        }
+
+        activeConnection = connection
+        connection.start(queue: .main)
+    }
+
+    private func startStreaming(to host: NWEndpoint.Host) {
+        let hostDescription = Self.describe(host)
+        onStatusChange?("Client conectado (\(hostDescription)). Creando ghost display…")
+
+        do {
+            let displayID = try ghostDisplay.create(
+                width: width, height: height, refreshRate: Double(fps), name: "MacExtend Ghost Display"
+            )
+            try encoder.start(width: width, height: height, fps: fps)
+
+            let sender = RtpH264Sender(host: host, port: videoPort)
+            sender.start()
+            self.sender = sender
+
+            encoder.onEncodedFrame = { [weak self] frame in
+                self?.sender?.send(frame)
+            }
+            encoder.onError = { [weak self] error in
+                self?.onStatusChange?("Error de encoding: \(error.localizedDescription)")
+            }
+            capture.onFrame = { [weak self] sampleBuffer in
+                self?.encoder.encode(sampleBuffer: sampleBuffer)
+            }
+            capture.onError = { [weak self] error in
+                self?.onStatusChange?("Error de captura: \(error.localizedDescription)")
+            }
+
+            Task {
+                do {
+                    try await capture.start(displayID: displayID, width: width, height: height, fps: fps)
+                    onStatusChange?("Streaming a \(hostDescription):\(videoPort)…")
+                } catch {
+                    onStatusChange?("Error iniciando captura: \(error.localizedDescription)")
+                    teardownStream()
+                }
+            }
+        } catch {
+            onStatusChange?("Error iniciando streaming: \(error.localizedDescription)")
+            teardownStream()
+        }
+    }
+
+    private func handleDisconnect() {
+        onStatusChange?("Client desconectado. Liberando ghost display…")
+        teardownStream()
+    }
+
+    private func teardownStream() {
+        activeConnection?.cancel()
+        activeConnection = nil
+        sender?.stop()
+        sender = nil
+        capture.onFrame = nil
+        let captureRef = capture
+        Task { try? await captureRef.stop() }
+        encoder.stop()
+        ghostDisplay.destroy()
+    }
+
+    private static func describe(_ host: NWEndpoint.Host) -> String {
+        switch host {
+        case .ipv4(let address): return "\(address)"
+        case .ipv6(let address): return "\(address)"
+        case .name(let name, _): return name
+        @unknown default: return "\(host)"
+        }
+    }
+}

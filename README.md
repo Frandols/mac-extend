@@ -19,7 +19,7 @@ Fases según `docs/spec.md` §10:
 
 | # | Fase | Estado |
 |---|------|--------|
-| 1 | Prototipo de video local (Server) | 🚧 En progreso |
+| 1 | Prototipo de video local (Server) | ✅ Completa |
 | 2 | Client mínimo (reproduce archivo pregrabado) | ⬜ Pendiente |
 | 3 | Conexión de red básica, sin encriptar | ⬜ Pendiente |
 | 4 | Multi-monitor | ⬜ Pendiente |

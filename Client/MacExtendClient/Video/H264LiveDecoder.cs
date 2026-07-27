@@ -29,13 +29,7 @@ sealed class H264LiveDecoder : IVideoFrameSource, IDisposable
         _dxgiDeviceManager = MFCreateDXGIDeviceManager();
         _dxgiDeviceManager.ResetDevice(device).CheckError();
 
-        using IMFActivateCollection activates = MFTEnumEx(
-            TransformCategoryGuids.VideoDecoder,
-            (uint)(EnumFlag.EnumFlagHardware | EnumFlag.EnumFlagSyncmft),
-            null,
-            new RegisterTypeInfo { GuidMajorType = MediaTypeGuids.Video, GuidSubtype = VideoFormatGuids.H264 });
-
-        IMFActivate? firstActivate = activates.FirstOrDefault();
+        IMFActivate? firstActivate = FindDecoderActivate(preferHardware: true) ?? FindDecoderActivate(preferHardware: false);
         if (firstActivate == null)
         {
             throw new InvalidOperationException("No se encontró ningún decoder MFT de H.264 en este sistema.");
@@ -55,6 +49,29 @@ sealed class H264LiveDecoder : IVideoFrameSource, IDisposable
 
         _transform.ProcessMessage(TMessageType.MessageNotifyBeginStreaming, UIntPtr.Zero);
         _transform.ProcessMessage(TMessageType.MessageNotifyStartOfStream, UIntPtr.Zero);
+    }
+
+    /// <summary>
+    /// Busca un decoder MFT de H.264. Los decoders por hardware en Windows suelen
+    /// registrarse como asíncronos (no síncronos), así que hay que pedir ambos modelos
+    /// de transform, no solo síncrono. Con preferHardware=false se hace fallback a
+    /// software si ningún decoder de hardware aparece — mejor que fallar del todo.
+    /// </summary>
+    private static IMFActivate? FindDecoderActivate(bool preferHardware)
+    {
+        EnumFlag flags = EnumFlag.EnumFlagSyncmft | EnumFlag.EnumFlagAsyncmft;
+        if (preferHardware)
+        {
+            flags |= EnumFlag.EnumFlagHardware;
+        }
+
+        using IMFActivateCollection activates = MFTEnumEx(
+            TransformCategoryGuids.VideoDecoder,
+            (uint)flags,
+            null,
+            new RegisterTypeInfo { GuidMajorType = MediaTypeGuids.Video, GuidSubtype = VideoFormatGuids.H264 });
+
+        return activates.FirstOrDefault();
     }
 
     private void NegotiateOutputType()

@@ -84,7 +84,19 @@ sealed class H264LiveDecoder : IVideoFrameSource, IDisposable
     private void NegotiateOutputType()
     {
         using IMFMediaType outputType = _transform.GetOutputAvailableType(0, 0);
+        Guid subtype = outputType.GetGUID(MediaTypeAttributeKeys.Subtype);
+        System.Diagnostics.Debug.WriteLine($"[MacExtend] Output type negociado: {DescribeSubtype(subtype)} ({subtype})");
         _transform.SetOutputType(0, outputType, 0);
+    }
+
+    private static string DescribeSubtype(Guid subtype)
+    {
+        if (subtype == VideoFormatGuids.NV12) return "NV12";
+        if (subtype == VideoFormatGuids.Rgb32) return "RGB32";
+        if (subtype == VideoFormatGuids.Argb32) return "ARGB32";
+        if (subtype == VideoFormatGuids.YUY2) return "YUY2";
+        if (subtype == VideoFormatGuids.P010) return "P010";
+        return "desconocido";
     }
 
     /// <summary>

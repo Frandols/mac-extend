@@ -57,7 +57,9 @@ public partial class MainWindow : Window
         int width = (int)SystemParameters.PrimaryScreenWidth;
         int height = (int)SystemParameters.PrimaryScreenHeight;
 
-        _videoHost = new VideoHost(_device, width, height);
+        // El archivo se escala internamente (IMFMediaEngine.TransferVideoFrame), así que
+        // el buffer del swapchain puede ser directamente el tamaño de pantalla.
+        _videoHost = new VideoHost(_device, width, height, width, height);
         Content = _videoHost;
 
         // La apertura del archivo (VideoPlayer) espera de forma bloqueante al evento

@@ -25,26 +25,38 @@ sealed class VideoHost : HwndHost
     private static extern bool DestroyWindow(IntPtr hwnd);
 
     private readonly ID3D11Device _device;
-    private readonly int _width;
-    private readonly int _height;
+    private readonly int _hwndWidth;
+    private readonly int _hwndHeight;
+    private readonly int _bufferWidth;
+    private readonly int _bufferHeight;
     private IDXGISwapChain1? _swapChain;
 
-    public VideoHost(ID3D11Device device, int width, int height)
+    /// <param name="hwndWidth">Tamaño del HWND nativo (normalmente la pantalla completa).</param>
+    /// <param name="bufferWidth">
+    /// Tamaño del back buffer del swapchain. No tiene por qué coincidir con el del HWND:
+    /// con Scaling.Stretch, DXGI escala el buffer al presentarlo. Esto importa porque
+    /// IVideoFrameSource.TryTransferFrame puede copiar sin escalar (CopySubresourceRegion,
+    /// a diferencia de IMFMediaEngine.TransferVideoFrame que sí escala internamente) — el
+    /// buffer tiene que coincidir con la resolución nativa del video en esos casos.
+    /// </param>
+    public VideoHost(ID3D11Device device, int hwndWidth, int hwndHeight, int bufferWidth, int bufferHeight)
     {
         _device = device;
-        _width = width;
-        _height = height;
+        _hwndWidth = hwndWidth;
+        _hwndHeight = hwndHeight;
+        _bufferWidth = bufferWidth;
+        _bufferHeight = bufferHeight;
     }
 
     protected override HandleRef BuildWindowCore(HandleRef hwndParent)
     {
         // "static" es una window class nativa de Windows, no hace falta registrar la nuestra.
         IntPtr hwnd = CreateWindowEx(0, "static", string.Empty, WsChild | WsVisible,
-            0, 0, _width, _height, hwndParent.Handle, IntPtr.Zero, IntPtr.Zero, IntPtr.Zero);
+            0, 0, _hwndWidth, _hwndHeight, hwndParent.Handle, IntPtr.Zero, IntPtr.Zero, IntPtr.Zero);
 
         using IDXGIFactory2 factory = DXGI.CreateDXGIFactory2<IDXGIFactory2>(false);
         SwapChainDescription1 description = new(
-            (uint)_width, (uint)_height, Format.B8G8R8A8_UNorm, false,
+            (uint)_bufferWidth, (uint)_bufferHeight, Format.B8G8R8A8_UNorm, false,
             Usage.RenderTargetOutput, 2, Scaling.Stretch, SwapEffect.FlipDiscard, AlphaMode.Ignore, SwapChainFlags.None);
 
         _swapChain = factory.CreateSwapChainForHwnd(_device, hwnd, description, null, null);
@@ -60,15 +72,15 @@ sealed class VideoHost : HwndHost
     }
 
     /// <summary>
-    /// Le pide al VideoPlayer que transfiera el frame actual (si hay uno nuevo) al back
+    /// Le pide a la fuente que transfiera el frame actual (si hay uno nuevo) al back
     /// buffer del swapchain, y solo presenta si efectivamente se escribió un frame nuevo.
     /// </summary>
-    public void RenderFrame(VideoPlayer player)
+    public void RenderFrame(IVideoFrameSource source)
     {
         if (_swapChain == null) return;
 
         using ID3D11Texture2D backBuffer = _swapChain.GetBuffer<ID3D11Texture2D>(0);
-        if (player.TryTransferFrame(backBuffer, _width, _height))
+        if (source.TryTransferFrame(backBuffer, _bufferWidth, _bufferHeight))
         {
             _swapChain.Present(1);
         }

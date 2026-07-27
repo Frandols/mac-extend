@@ -12,7 +12,7 @@ namespace MacExtendClient.Video;
 /// ID3D11Device que usa el renderer, y expone los frames decodificados como
 /// texturas D3D11 listas para presentar.
 /// </summary>
-sealed class VideoPlayer : IDisposable
+sealed class VideoPlayer : IVideoFrameSource, IDisposable
 {
     private readonly IMFDXGIDeviceManager _dxgiDeviceManager;
     private readonly IMFMediaEngine _mediaEngine;

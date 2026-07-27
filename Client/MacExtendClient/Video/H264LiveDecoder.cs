@@ -83,6 +83,11 @@ sealed class H264LiveDecoder : IVideoFrameSource, IDisposable
 
     private void NegotiateOutputType()
     {
+        // Pedimos cada índice una sola vez (llamar GetOutputAvailableType dos veces
+        // para el mismo índice, p.ej. para loggear y después para usarlo, rompía el
+        // transform — probablemente al disponer la primera copia). El primero se
+        // queda como candidato a usar; el resto solo se loggea y se descarta.
+        IMFMediaType? chosen = null;
         for (int i = 0; ; i++)
         {
             IMFMediaType candidate;
@@ -94,17 +99,31 @@ sealed class H264LiveDecoder : IVideoFrameSource, IDisposable
             {
                 break; // MF_E_NO_MORE_TYPES: ya no hay más opciones para enumerar.
             }
-            using (candidate)
+
+            Guid candidateSubtype = candidate.GetGUID(MediaTypeAttributeKeys.Subtype);
+            System.Diagnostics.Debug.WriteLine($"[MacExtend] Output type disponible [{i}]: {DescribeSubtype(candidateSubtype)} ({candidateSubtype})");
+
+            if (chosen == null)
             {
-                Guid candidateSubtype = candidate.GetGUID(MediaTypeAttributeKeys.Subtype);
-                System.Diagnostics.Debug.WriteLine($"[MacExtend] Output type disponible [{i}]: {DescribeSubtype(candidateSubtype)} ({candidateSubtype})");
+                chosen = candidate;
+            }
+            else
+            {
+                candidate.Dispose();
             }
         }
 
-        using IMFMediaType outputType = _transform.GetOutputAvailableType(0, 0);
-        Guid subtype = outputType.GetGUID(MediaTypeAttributeKeys.Subtype);
-        System.Diagnostics.Debug.WriteLine($"[MacExtend] Output type elegido: {DescribeSubtype(subtype)} ({subtype})");
-        _transform.SetOutputType(0, outputType, 0);
+        if (chosen == null)
+        {
+            throw new InvalidOperationException("El decoder no ofrece ningún output type disponible.");
+        }
+
+        using (chosen)
+        {
+            Guid subtype = chosen.GetGUID(MediaTypeAttributeKeys.Subtype);
+            System.Diagnostics.Debug.WriteLine($"[MacExtend] Output type elegido: {DescribeSubtype(subtype)} ({subtype})");
+            _transform.SetOutputType(0, chosen, 0);
+        }
     }
 
     private static string DescribeSubtype(Guid subtype)

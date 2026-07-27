@@ -30,6 +30,7 @@
 		9CDA894B843FC2423EA1CB73 /* DisplayCapture.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = DisplayCapture.swift; sourceTree = "<group>"; };
 		9EA23F1B0E93CA117CBAA195 /* Phase1Runner.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Phase1Runner.swift; sourceTree = "<group>"; };
 		A8059FEC4D29A1B96254994B /* VideoFileWriter.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = VideoFileWriter.swift; sourceTree = "<group>"; };
+		DAFCBF3FEF83DEEE4300E0BF /* Info.plist */ = {isa = PBXFileReference; lastKnownFileType = text.plist; path = Info.plist; sourceTree = "<group>"; };
 /* End PBXFileReference section */
 
 /* Begin PBXGroup section */
@@ -100,6 +101,7 @@
 		F69195CA2E7A3B22E6F36425 /* App */ = {
 			isa = PBXGroup;
 			children = (
+				DAFCBF3FEF83DEEE4300E0BF /* Info.plist */,
 				65A583B78F8411FE16C6C0F8 /* MacExtendServerApp.swift */,
 			);
 			path = App;
@@ -314,11 +316,7 @@
 				CODE_SIGN_STYLE = Automatic;
 				COMBINE_HIDPI_IMAGES = YES;
 				CURRENT_PROJECT_VERSION = 1;
-				GENERATE_INFOPLIST_FILE = YES;
-				INFOPLIST_KEY_CFBundleDisplayName = "MacExtend Server";
-				INFOPLIST_KEY_LSApplicationCategoryType = "public.app-category.utilities";
-				INFOPLIST_KEY_NSHumanReadableCopyright = "";
-				INFOPLIST_KEY_NSLocalNetworkUsageDescription = "MacExtend necesita acceso a la red local para transmitir video a los monitores de Windows conectados.";
+				INFOPLIST_FILE = Sources/App/Info.plist;
 				LD_RUNPATH_SEARCH_PATHS = (
 					"$(inherited)",
 					"@executable_path/../Frameworks",
@@ -342,11 +340,7 @@
 				CODE_SIGN_STYLE = Automatic;
 				COMBINE_HIDPI_IMAGES = YES;
 				CURRENT_PROJECT_VERSION = 1;
-				GENERATE_INFOPLIST_FILE = YES;
-				INFOPLIST_KEY_CFBundleDisplayName = "MacExtend Server";
-				INFOPLIST_KEY_LSApplicationCategoryType = "public.app-category.utilities";
-				INFOPLIST_KEY_NSHumanReadableCopyright = "";
-				INFOPLIST_KEY_NSLocalNetworkUsageDescription = "MacExtend necesita acceso a la red local para transmitir video a los monitores de Windows conectados.";
+				INFOPLIST_FILE = Sources/App/Info.plist;
 				LD_RUNPATH_SEARCH_PATHS = (
 					"$(inherited)",
 					"@executable_path/../Frameworks",

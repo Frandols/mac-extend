@@ -35,6 +35,9 @@ final class StreamingController {
 
     func start() throws {
         let listener = try NWListener(using: .tcp, on: NWEndpoint.Port(rawValue: controlPort)!)
+        // Anunciar por Bonjour (aunque el Client todavía no lo descubre — eso es Fase
+        // 5) es lo que dispara de forma confiable el prompt de "Red Local" en macOS.
+        listener.service = NWListener.Service(name: "MacExtend Server", type: "_macextend._tcp")
         listener.newConnectionHandler = { [weak self] connection in
             self?.handleNewConnection(connection)
         }

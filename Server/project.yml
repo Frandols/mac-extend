@@ -12,6 +12,20 @@ targets:
     deploymentTarget: "14.0"
     sources:
       - path: Sources
+    info:
+      path: Sources/App/Info.plist
+      properties:
+        CFBundleDisplayName: MacExtend Server
+        NSHumanReadableCopyright: ""
+        LSApplicationCategoryType: public.app-category.utilities
+        NSLocalNetworkUsageDescription: "MacExtend necesita acceso a la red local para transmitir video a los monitores de Windows conectados."
+        # Anunciarse por Bonjour (mismo tipo de servicio que va a usar el
+        # descubrimiento real en la Fase 5) es lo que dispara de forma confiable el
+        # prompt de permiso de Red Local en macOS reciente; sin esto, un listener a
+        # secas a veces ni siquiera pide el permiso y las conexiones entrantes de
+        # otros dispositivos se descartan en silencio.
+        NSBonjourServices:
+          - _macextend._tcp
     settings:
       base:
         PRODUCT_BUNDLE_IDENTIFIER: com.macextend.server
@@ -21,10 +35,5 @@ targets:
         SWIFT_VERSION: "5.0"
         ARCHS: arm64
         ONLY_ACTIVE_ARCH: YES
-        GENERATE_INFOPLIST_FILE: YES
-        INFOPLIST_KEY_CFBundleDisplayName: MacExtend Server
-        INFOPLIST_KEY_NSHumanReadableCopyright: ""
-        INFOPLIST_KEY_LSApplicationCategoryType: public.app-category.utilities
-        INFOPLIST_KEY_NSLocalNetworkUsageDescription: "MacExtend necesita acceso a la red local para transmitir video a los monitores de Windows conectados."
         SWIFT_OBJC_BRIDGING_HEADER: Sources/GhostDisplay/CGVirtualDisplay-Bridging-Header.h
         CODE_SIGN_STYLE: Automatic

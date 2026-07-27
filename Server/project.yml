@@ -36,4 +36,12 @@ targets:
         ARCHS: arm64
         ONLY_ACTIVE_ARCH: YES
         SWIFT_OBJC_BRIDGING_HEADER: Sources/GhostDisplay/CGVirtualDisplay-Bridging-Header.h
+        # Firma ad-hoc (sin Team ID): significa que cada rebuild puede invalidar
+        # permisos TCC ya otorgados (Screen Recording, Red Local) y macOS los vuelve
+        # a pedir. Firmar con un Team ID real evitaría esto, pero la cuenta Personal
+        # Team gratuita del desarrollador quedó con un certificado de desarrollo
+        # atascado (creado en otra Mac o sesión, sin la clave privada disponible acá)
+        # y las cuentas gratuitas no tienen acceso al portal web para revocarlo. Se
+        # retoma cuando haga falta (probablemente al pasar a una cuenta paga para
+        # notarización/distribución en la Fase 10).
         CODE_SIGN_STYLE: Automatic

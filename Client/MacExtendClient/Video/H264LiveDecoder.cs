@@ -68,8 +68,8 @@ sealed class H264LiveDecoder : IVideoFrameSource, IDisposable
         using IMFActivateCollection activates = MFTEnumEx(
             TransformCategoryGuids.VideoDecoder,
             (uint)flags,
-            null,
-            new RegisterTypeInfo { GuidMajorType = MediaTypeGuids.Video, GuidSubtype = VideoFormatGuids.H264 });
+            new RegisterTypeInfo { GuidMajorType = MediaTypeGuids.Video, GuidSubtype = VideoFormatGuids.H264 },
+            null);
 
         return activates.FirstOrDefault();
     }

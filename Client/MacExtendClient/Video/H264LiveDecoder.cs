@@ -1,5 +1,6 @@
 using SharpGen.Runtime;
 using Vortice.Direct3D11;
+using Vortice.DXGI;
 using Vortice.MediaFoundation;
 using static Vortice.MediaFoundation.MediaFactory;
 
@@ -20,6 +21,18 @@ sealed class H264LiveDecoder : IVideoFrameSource, IDisposable
     private readonly IMFTransform _transform;
     private readonly object _lock = new();
 
+    // El decoder solo entrega formatos YUV (NV12/YV12/IYUV/I420/YUY2, confirmado por
+    // enumeración — ningún decoder de H.264 en Windows ofrece RGB directo). El
+    // swapchain espera BGRA, así que hace falta convertir color; CopySubresourceRegion
+    // no lo hace (copia bytes crudos). El D3D11 Video Processor es el camino estándar
+    // para esto — es lo mismo que usa IMFMediaEngine/EVR por debajo.
+    private readonly ID3D11VideoDevice _videoDevice;
+    private readonly ID3D11VideoContext _videoContext;
+    private readonly ID3D11VideoProcessorEnumerator _videoProcessorEnumerator;
+    private readonly ID3D11VideoProcessor _videoProcessor;
+    private readonly int _width;
+    private readonly int _height;
+
     private ID3D11Texture2D? _latestTexture;
     private uint _latestSubresourceIndex;
     private bool _hasNewFrame;
@@ -34,6 +47,9 @@ sealed class H264LiveDecoder : IVideoFrameSource, IDisposable
 
     public H264LiveDecoder(ID3D11Device device, int width, int height)
     {
+        _width = width;
+        _height = height;
+
         _dxgiDeviceManager = MFCreateDXGIDeviceManager();
         _dxgiDeviceManager.ResetDevice(device).CheckError();
 
@@ -52,6 +68,23 @@ sealed class H264LiveDecoder : IVideoFrameSource, IDisposable
 
         _transform.ProcessMessage(TMessageType.MessageNotifyBeginStreaming, UIntPtr.Zero);
         _transform.ProcessMessage(TMessageType.MessageNotifyStartOfStream, UIntPtr.Zero);
+
+        _videoDevice = device.QueryInterface<ID3D11VideoDevice>();
+        _videoContext = device.ImmediateContext.QueryInterface<ID3D11VideoContext>();
+
+        var contentDescription = new VideoProcessorContentDescription
+        {
+            InputFrameFormat = VideoFrameFormat.Progressive,
+            InputFrameRate = new Rational(30, 1),
+            InputWidth = (uint)width,
+            InputHeight = (uint)height,
+            OutputFrameRate = new Rational(30, 1),
+            OutputWidth = (uint)width,
+            OutputHeight = (uint)height,
+            Usage = VideoUsage.PlaybackNormal,
+        };
+        _videoProcessorEnumerator = _videoDevice.CreateVideoProcessorEnumerator(contentDescription);
+        _videoProcessor = _videoDevice.CreateVideoProcessor(_videoProcessorEnumerator, 0);
     }
 
     /// <summary>
@@ -226,8 +259,26 @@ sealed class H264LiveDecoder : IVideoFrameSource, IDisposable
             _hasNewFrame = false;
         }
 
-        using ID3D11DeviceContext context = sourceTexture.Device.ImmediateContext;
-        context.CopySubresourceRegion(destination, 0, 0, 0, 0, sourceTexture, subresourceIndex, null);
+        var inputViewDescription = new VideoProcessorInputViewDescription
+        {
+            FourCC = 0,
+            ViewDimension = VideoProcessorInputViewDimension.Texture2D,
+            Texture2D = new Texture2DVideoProcessorInputView { MipSlice = 0, ArraySlice = subresourceIndex },
+        };
+        using ID3D11VideoProcessorInputView inputView =
+            _videoDevice.CreateVideoProcessorInputView(sourceTexture, _videoProcessorEnumerator, inputViewDescription);
+
+        var outputViewDescription = new VideoProcessorOutputViewDescription
+        {
+            ViewDimension = VideoProcessorOutputViewDimension.Texture2D,
+            Texture2D = new Texture2DVideoProcessorOutputView { MipSlice = 0 },
+        };
+        using ID3D11VideoProcessorOutputView outputView =
+            _videoDevice.CreateVideoProcessorOutputView(destination, _videoProcessorEnumerator, outputViewDescription);
+
+        var stream = new VideoProcessorStream { Enable = true, InputSurface = inputView };
+        _videoContext.VideoProcessorBlt(_videoProcessor, outputView, 0, new[] { stream }).CheckError();
+
         return true;
     }
 
@@ -236,6 +287,10 @@ sealed class H264LiveDecoder : IVideoFrameSource, IDisposable
         _transform.ProcessMessage(TMessageType.MessageNotifyEndOfStream, UIntPtr.Zero);
         _transform.Dispose();
         _dxgiDeviceManager.Dispose();
+        _videoProcessor.Dispose();
+        _videoProcessorEnumerator.Dispose();
+        _videoContext.Dispose();
+        _videoDevice.Dispose();
         lock (_lock)
         {
             _latestTexture?.Dispose();

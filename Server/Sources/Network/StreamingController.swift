@@ -61,21 +61,30 @@ final class StreamingController {
     private func handleNewConnection(_ connection: NWConnection) {
         guard activeConnection == nil else {
             // v1: un solo client a la vez (spec §6).
+            onStatusChange?("Conexión adicional rechazada (ya hay un client activo).")
             connection.cancel()
             return
         }
 
         guard case .hostPort(let host, _) = connection.endpoint else {
+            onStatusChange?("Conexión rechazada: endpoint inesperado (\(connection.endpoint)).")
             connection.cancel()
             return
         }
+
+        onStatusChange?("Conexión aceptada, esperando a que quede lista…")
 
         connection.stateUpdateHandler = { [weak self] state in
             switch state {
             case .ready:
                 self?.startStreaming(to: host)
-            case .failed, .cancelled:
+            case .failed(let error):
+                self?.onStatusChange?("Conexión falló: \(error.localizedDescription)")
                 self?.handleDisconnect()
+            case .cancelled:
+                self?.handleDisconnect()
+            case .waiting(let error):
+                self?.onStatusChange?("Conexión esperando: \(error.localizedDescription)")
             default:
                 break
             }

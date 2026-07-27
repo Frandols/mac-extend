@@ -124,9 +124,15 @@ public partial class LiveStreamWindow : Window
     private void UpdateStatus()
     {
         if (_receiver == null || _decoder == null) return;
-        StatusText.Text =
+        string status =
             $"Paquetes: {_receiver.PacketsReceived}   Frames recibidos: {_receiver.FramesReceived}   " +
             $"Frames decodificados: {_decoder.FramesDecoded}";
+
+        // El texto de estado queda tapado por VideoHost (HwndHost siempre se dibuja por
+        // encima del contenido WPF normal — "airspace"), así que también lo mandamos a
+        // Debug Output, visible en Visual Studio sin depender del layout de la ventana.
+        StatusText.Text = status;
+        System.Diagnostics.Debug.WriteLine($"[MacExtend] {status}");
     }
 
     private void OnRendering(object? sender, EventArgs e)

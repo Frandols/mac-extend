@@ -37,13 +37,8 @@ sealed class H264LiveDecoder : IVideoFrameSource, IDisposable
         _dxgiDeviceManager = MFCreateDXGIDeviceManager();
         _dxgiDeviceManager.ResetDevice(device).CheckError();
 
-        IMFActivate? firstActivate = FindDecoderActivate(preferHardware: true) ?? FindDecoderActivate(preferHardware: false);
-        if (firstActivate == null)
-        {
-            throw new InvalidOperationException("No se encontró ningún decoder MFT de H.264 en este sistema.");
-        }
-
-        _transform = firstActivate.ActivateObject<IMFTransform>();
+        _transform = TryActivateDecoder(preferHardware: true) ?? TryActivateDecoder(preferHardware: false)
+            ?? throw new InvalidOperationException("No se encontró ningún decoder MFT de H.264 en este sistema.");
 
         _transform.ProcessMessage(TMessageType.MessageSetD3DManager, (UIntPtr)(ulong)_dxgiDeviceManager.NativePointer.ToInt64());
 
@@ -65,7 +60,7 @@ sealed class H264LiveDecoder : IVideoFrameSource, IDisposable
     /// de transform, no solo síncrono. Con preferHardware=false se hace fallback a
     /// software si ningún decoder de hardware aparece — mejor que fallar del todo.
     /// </summary>
-    private static IMFActivate? FindDecoderActivate(bool preferHardware)
+    private static IMFTransform? TryActivateDecoder(bool preferHardware)
     {
         EnumFlag flags = EnumFlag.EnumFlagSyncmft | EnumFlag.EnumFlagAsyncmft;
         if (preferHardware)
@@ -73,13 +68,17 @@ sealed class H264LiveDecoder : IVideoFrameSource, IDisposable
             flags |= EnumFlag.EnumFlagHardware;
         }
 
+        // La colección y el IMFActivate elegido tienen que seguir vivos hasta terminar
+        // de activar el transform — liberarlos antes (p.ej. con "using" en un método
+        // que devuelve el IMFActivate para usarlo después) deja un COM object inválido.
         using IMFActivateCollection activates = MFTEnumEx(
             TransformCategoryGuids.VideoDecoder,
             (uint)flags,
             new RegisterTypeInfo { GuidMajorType = MediaTypeGuids.Video, GuidSubtype = VideoFormatGuids.H264 },
             null);
 
-        return activates.FirstOrDefault();
+        using IMFActivate? firstActivate = activates.FirstOrDefault();
+        return firstActivate?.ActivateObject<IMFTransform>();
     }
 
     private void NegotiateOutputType()

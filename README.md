@@ -21,7 +21,7 @@ Fases según `docs/spec.md` §10:
 |---|------|--------|
 | 1 | Prototipo de video local (Server) | ✅ Completa |
 | 2 | Client mínimo (reproduce archivo pregrabado) | ✅ Completa |
-| 3 | Conexión de red básica, sin encriptar | 🚧 3a completa (streaming en vivo por red validado); 3b pendiente (decode/render en vivo en el Client) |
+| 3 | Conexión de red básica, sin encriptar | ✅ Completa (streaming en vivo + decode/render funcionando; falta optimizar latencia/fluidez) |
 | 4 | Multi-monitor | ⬜ Pendiente |
 | 5 | Descubrimiento automático (mDNS) | ⬜ Pendiente |
 | 6 | Seguridad (TLS, PIN, SRTP) | ⬜ Pendiente |

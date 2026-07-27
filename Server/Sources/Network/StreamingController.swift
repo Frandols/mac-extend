@@ -42,13 +42,25 @@ final class StreamingController {
             self?.handleNewConnection(connection)
         }
         listener.stateUpdateHandler = { [weak self] state in
-            if case .failed(let error) = state {
-                self?.onStatusChange?("Error del listener: \(error.localizedDescription)")
+            guard let self else { return }
+            switch state {
+            case .ready:
+                self.onStatusChange?("Listener listo en el puerto \(self.controlPort). Esperando conexiones…")
+            case .failed(let error):
+                self.onStatusChange?("Error del listener: \(error.localizedDescription)")
+            case .waiting(let error):
+                self.onStatusChange?("Listener esperando (retry): \(error.localizedDescription)")
+            case .cancelled:
+                self.onStatusChange?("Listener cancelado.")
+            case .setup:
+                self.onStatusChange?("Listener en setup…")
+            @unknown default:
+                self.onStatusChange?("Listener: estado desconocido (\(state)).")
             }
         }
         listener.start(queue: .main)
         self.listener = listener
-        onStatusChange?("Escuchando conexiones en el puerto \(controlPort)…")
+        onStatusChange?("Iniciando listener en el puerto \(controlPort)…")
     }
 
     func stop() {

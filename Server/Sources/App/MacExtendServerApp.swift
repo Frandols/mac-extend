@@ -57,7 +57,7 @@ struct Phase1TestView: View {
             Text("Fase 3a — Streaming en vivo")
                 .font(.title3.bold())
 
-            Text("Escucha en el puerto 7000. Al conectarse un client, crea el ghost display y transmite por RTP/UDP al puerto 5004.")
+            Text("Escucha en el puerto 47632. Al conectarse un client, crea el ghost display y transmite por RTP/UDP al puerto 47633.")
                 .font(.callout)
                 .foregroundStyle(.secondary)
                 .multilineTextAlignment(.center)

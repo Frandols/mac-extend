@@ -12,8 +12,8 @@ namespace MacExtendClient;
 /// </summary>
 public partial class StreamDumpWindow : Window
 {
-    private const int ControlPort = 7000;
-    private const int VideoPort = 5004;
+    private const int ControlPort = 47632;
+    private const int VideoPort = 47633;
 
     private readonly string _serverHost;
     private readonly string _outputPath;

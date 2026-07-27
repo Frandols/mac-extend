@@ -25,7 +25,7 @@ final class StreamingController {
 
     var onStatusChange: ((String) -> Void)?
 
-    init(controlPort: UInt16 = 7000, videoPort: UInt16 = 5004, width: Int = 1920, height: Int = 1080, fps: Int = 30) {
+    init(controlPort: UInt16 = 47632, videoPort: UInt16 = 47633, width: Int = 1920, height: Int = 1080, fps: Int = 30) {
         self.controlPort = controlPort
         self.videoPort = videoPort
         self.width = width

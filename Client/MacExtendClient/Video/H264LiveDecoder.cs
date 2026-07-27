@@ -83,9 +83,27 @@ sealed class H264LiveDecoder : IVideoFrameSource, IDisposable
 
     private void NegotiateOutputType()
     {
+        for (int i = 0; ; i++)
+        {
+            IMFMediaType candidate;
+            try
+            {
+                candidate = _transform.GetOutputAvailableType(0, i);
+            }
+            catch
+            {
+                break; // MF_E_NO_MORE_TYPES: ya no hay más opciones para enumerar.
+            }
+            using (candidate)
+            {
+                Guid candidateSubtype = candidate.GetGUID(MediaTypeAttributeKeys.Subtype);
+                System.Diagnostics.Debug.WriteLine($"[MacExtend] Output type disponible [{i}]: {DescribeSubtype(candidateSubtype)} ({candidateSubtype})");
+            }
+        }
+
         using IMFMediaType outputType = _transform.GetOutputAvailableType(0, 0);
         Guid subtype = outputType.GetGUID(MediaTypeAttributeKeys.Subtype);
-        System.Diagnostics.Debug.WriteLine($"[MacExtend] Output type negociado: {DescribeSubtype(subtype)} ({subtype})");
+        System.Diagnostics.Debug.WriteLine($"[MacExtend] Output type elegido: {DescribeSubtype(subtype)} ({subtype})");
         _transform.SetOutputType(0, outputType, 0);
     }
 

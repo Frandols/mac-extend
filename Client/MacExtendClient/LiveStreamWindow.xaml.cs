@@ -1,5 +1,6 @@
 using System.Windows;
 using System.Windows.Media;
+using System.Windows.Threading;
 using MacExtendClient.Network;
 using MacExtendClient.Video;
 using Vortice.Direct3D;
@@ -24,7 +25,9 @@ public partial class LiveStreamWindow : Window
 
     private readonly string _serverHost;
     private readonly CancellationTokenSource _cts = new();
+    private readonly DispatcherTimer _statusTimer;
     private bool _loading;
+    private bool _shownFirstError;
 
     private ID3D11Device? _device;
     private VideoHost? _videoHost;
@@ -36,6 +39,10 @@ public partial class LiveStreamWindow : Window
     {
         InitializeComponent();
         _serverHost = serverHost;
+
+        _statusTimer = new DispatcherTimer { Interval = TimeSpan.FromMilliseconds(500) };
+        _statusTimer.Tick += (_, _) => UpdateStatus();
+
         Loaded += OnLoaded;
         Closed += OnClosed;
     }
@@ -70,18 +77,19 @@ public partial class LiveStreamWindow : Window
         // H264LiveDecoder copia con CopySubresourceRegion, que no escala. DXGI
         // (Scaling.Stretch) se encarga de estirar el buffer al HWND al presentar.
         _videoHost = new VideoHost(_device, hwndWidth, hwndHeight, VideoWidth, VideoHeight);
-        Content = _videoHost;
+        RootGrid.Children.Insert(0, _videoHost);
 
         try
         {
             _decoder = new H264LiveDecoder(_device, VideoWidth, VideoHeight);
+            _decoder.DecodeError += OnDecodeError;
 
             _receiver = new RtpH264Receiver(VideoPort);
             _receiver.FrameReceived += _decoder.OnFrameReceived;
 
             _controlClient = new TcpControlClient();
             _controlClient.Disconnected += message =>
-                Dispatcher.Invoke(() => Title = $"MacExtend Client — Desconectado: {message}");
+                Dispatcher.Invoke(() => StatusText.Text = $"Desconectado: {message}");
 
             await _controlClient.ConnectAsync(_serverHost, ControlPort, _cts.Token);
             _ = _receiver.RunAsync(_cts.Token);
@@ -89,13 +97,36 @@ public partial class LiveStreamWindow : Window
         catch (Exception ex)
         {
             MessageBox.Show(
-                $"No se pudo conectar a '{_serverHost}':\n{ex.Message}",
+                $"No se pudo conectar a '{_serverHost}':\n{ex}",
                 "MacExtend Client", MessageBoxButton.OK, MessageBoxImage.Error);
             Close();
             return;
         }
 
+        _statusTimer.Start();
         CompositionTarget.Rendering += OnRendering;
+    }
+
+    private void OnDecodeError(Exception ex)
+    {
+        Dispatcher.Invoke(() =>
+        {
+            StatusText.Text = $"Error de decode: {ex.GetType().Name}: {ex.Message}";
+            if (!_shownFirstError)
+            {
+                _shownFirstError = true;
+                MessageBox.Show(ex.ToString(), "MacExtend Client — Error de decode",
+                    MessageBoxButton.OK, MessageBoxImage.Warning);
+            }
+        });
+    }
+
+    private void UpdateStatus()
+    {
+        if (_receiver == null || _decoder == null) return;
+        StatusText.Text =
+            $"Paquetes: {_receiver.PacketsReceived}   Frames recibidos: {_receiver.FramesReceived}   " +
+            $"Frames decodificados: {_decoder.FramesDecoded}";
     }
 
     private void OnRendering(object? sender, EventArgs e)
@@ -106,12 +137,17 @@ public partial class LiveStreamWindow : Window
 
     private void OnClosed(object? sender, EventArgs e)
     {
+        _statusTimer.Stop();
         CompositionTarget.Rendering -= OnRendering;
         _cts.Cancel();
 
         if (_receiver != null && _decoder != null)
         {
             _receiver.FrameReceived -= _decoder.OnFrameReceived;
+        }
+        if (_decoder != null)
+        {
+            _decoder.DecodeError -= OnDecodeError;
         }
         _receiver?.Dispose();
         _decoder?.Dispose();

@@ -24,6 +24,14 @@ sealed class H264LiveDecoder : IVideoFrameSource, IDisposable
     private uint _latestSubresourceIndex;
     private bool _hasNewFrame;
 
+    /// <summary>
+    /// El loop que entrega frames (RtpH264Receiver.RunAsync) corre en background y
+    /// nadie más lo observa — sin este evento, una excepción acá simplemente mata ese
+    /// loop en silencio y la ventana queda congelada sin ninguna pista de por qué.
+    /// </summary>
+    public event Action<Exception>? DecodeError;
+    public long FramesDecoded { get; private set; }
+
     public H264LiveDecoder(ID3D11Device device, int width, int height)
     {
         _dxgiDeviceManager = MFCreateDXGIDeviceManager();
@@ -87,23 +95,30 @@ sealed class H264LiveDecoder : IVideoFrameSource, IDisposable
     /// </summary>
     public void OnFrameReceived(byte[] annexBFrame)
     {
-        IMFMediaBuffer buffer = MFCreateMemoryBuffer(annexBFrame.Length);
-        buffer.Lock(out nint bufferPointer, out _, out _);
         try
         {
-            System.Runtime.InteropServices.Marshal.Copy(annexBFrame, 0, bufferPointer, annexBFrame.Length);
+            IMFMediaBuffer buffer = MFCreateMemoryBuffer(annexBFrame.Length);
+            buffer.Lock(out nint bufferPointer, out _, out _);
+            try
+            {
+                System.Runtime.InteropServices.Marshal.Copy(annexBFrame, 0, bufferPointer, annexBFrame.Length);
+            }
+            finally
+            {
+                buffer.Unlock();
+            }
+            buffer.CurrentLength = annexBFrame.Length;
+
+            IMFSample sample = MFCreateSample();
+            sample.AddBuffer(buffer);
+
+            _transform.ProcessInput(0, sample, 0);
+            DrainOutput();
         }
-        finally
+        catch (Exception ex)
         {
-            buffer.Unlock();
+            DecodeError?.Invoke(ex);
         }
-        buffer.CurrentLength = annexBFrame.Length;
-
-        IMFSample sample = MFCreateSample();
-        sample.AddBuffer(buffer);
-
-        _transform.ProcessInput(0, sample, 0);
-        DrainOutput();
     }
 
     private void DrainOutput()
@@ -147,6 +162,7 @@ sealed class H264LiveDecoder : IVideoFrameSource, IDisposable
             _latestSubresourceIndex = subresourceIndex;
             _hasNewFrame = true;
         }
+        FramesDecoded++;
     }
 
     public bool TryTransferFrame(ID3D11Texture2D destination, int width, int height)

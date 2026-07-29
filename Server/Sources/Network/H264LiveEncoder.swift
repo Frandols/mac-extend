@@ -58,12 +58,14 @@ final class H264LiveEncoder {
         try set(newSession, kVTCompressionPropertyKey_MaxKeyFrameInterval, NSNumber(value: fps))
         try set(newSession, kVTCompressionPropertyKey_ExpectedFrameRate, NSNumber(value: fps))
 
-        // Sin cap, VideoToolbox puede generar picos muy por encima de lo que soporta
-        // el WiFi (sobre todo con contenido de pantalla con texto/movimiento), lo que
-        // satura la cola de envío UDP y hace crecer la latencia con el tiempo
-        // ("bufferbloat") en vez de descartar frames. 6 Mbps es cómodo para 1080p30
-        // de screen content sobre WiFi 5GHz.
-        let averageBitRate = 6_000_000
+        // Medido con diagnóstico real: a 6 Mbps el Server manda todo sin backpressure
+        // (0 frames salteados), pero igual se pierde ~15% entre la Mac y Windows antes
+        // de llegar al socket UDP — evidencia de que el WiFi real del usuario no banca
+        // ese caudal de forma sostenida. La prioridad explícita acá es fluidez a 30fps
+        // por sobre nitidez, así que se prioriza dejar mucho margen de sobra en vez de
+        // ajustar al límite: 2.5 Mbps es bajo para 1080p (se va a notar borroso en
+        // texto/detalle fino), pero para uso de escritorio (no video) debería alcanzar.
+        let averageBitRate = 2_500_000
         try set(newSession, kVTCompressionPropertyKey_AverageBitRate, NSNumber(value: averageBitRate))
         try set(newSession, kVTCompressionPropertyKey_DataRateLimits,
                 [NSNumber(value: averageBitRate / 8), NSNumber(value: 1)] as CFArray)

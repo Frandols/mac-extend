@@ -33,9 +33,14 @@ sealed class H264LiveDecoder : IVideoFrameSource, IDisposable
     private readonly int _width;
     private readonly int _height;
 
-    private ID3D11Texture2D? _latestTexture;
-    private uint _latestSubresourceIndex;
-    private bool _hasNewFrame;
+    // Cola chica en vez de "solo el último frame": si el decoder entrega varios
+    // frames entre dos renders (típico si el WiFi entrega en ráfagas), quedarse solo
+    // con el más reciente descarta los del medio — eso genera el mismo tranco
+    // irregular que se ve como "lag" aunque no se haya perdido ningún dato real. Un
+    // tope chico (3 frames ≈ 100ms a 30fps) evita que la cola crezca sin límite si el
+    // render se atrasa de verdad.
+    private const int MaxQueuedFrames = 3;
+    private readonly Queue<(ID3D11Texture2D Texture, uint SubresourceIndex)> _frameQueue = new();
 
     /// <summary>
     /// El loop que entrega frames (RtpH264Receiver.RunAsync) corre en background y
@@ -238,46 +243,52 @@ sealed class H264LiveDecoder : IVideoFrameSource, IDisposable
 
         lock (_lock)
         {
-            _latestTexture?.Dispose();
-            _latestTexture = texture;
-            _latestSubresourceIndex = subresourceIndex;
-            _hasNewFrame = true;
+            _frameQueue.Enqueue((texture, subresourceIndex));
+            while (_frameQueue.Count > MaxQueuedFrames)
+            {
+                _frameQueue.Dequeue().Texture.Dispose();
+            }
         }
         FramesDecoded++;
     }
 
     public bool TryTransferFrame(ID3D11Texture2D destination, int width, int height)
     {
-        ID3D11Texture2D? sourceTexture;
+        ID3D11Texture2D sourceTexture;
         uint subresourceIndex;
 
         lock (_lock)
         {
-            if (!_hasNewFrame || _latestTexture == null) return false;
-            sourceTexture = _latestTexture;
-            subresourceIndex = _latestSubresourceIndex;
-            _hasNewFrame = false;
+            if (_frameQueue.Count == 0) return false;
+            (sourceTexture, subresourceIndex) = _frameQueue.Dequeue();
         }
 
-        var inputViewDescription = new VideoProcessorInputViewDescription
+        try
         {
-            FourCC = 0,
-            ViewDimension = VideoProcessorInputViewDimension.Texture2D,
-            Texture2D = new Texture2DVideoProcessorInputView { MipSlice = 0, ArraySlice = subresourceIndex },
-        };
-        using ID3D11VideoProcessorInputView inputView =
-            _videoDevice.CreateVideoProcessorInputView(sourceTexture, _videoProcessorEnumerator, inputViewDescription);
+            var inputViewDescription = new VideoProcessorInputViewDescription
+            {
+                FourCC = 0,
+                ViewDimension = VideoProcessorInputViewDimension.Texture2D,
+                Texture2D = new Texture2DVideoProcessorInputView { MipSlice = 0, ArraySlice = subresourceIndex },
+            };
+            using ID3D11VideoProcessorInputView inputView =
+                _videoDevice.CreateVideoProcessorInputView(sourceTexture, _videoProcessorEnumerator, inputViewDescription);
 
-        var outputViewDescription = new VideoProcessorOutputViewDescription
+            var outputViewDescription = new VideoProcessorOutputViewDescription
+            {
+                ViewDimension = VideoProcessorOutputViewDimension.Texture2D,
+                Texture2D = new Texture2DVideoProcessorOutputView { MipSlice = 0 },
+            };
+            using ID3D11VideoProcessorOutputView outputView =
+                _videoDevice.CreateVideoProcessorOutputView(destination, _videoProcessorEnumerator, outputViewDescription);
+
+            var stream = new VideoProcessorStream { Enable = true, InputSurface = inputView };
+            _videoContext.VideoProcessorBlt(_videoProcessor, outputView, 0, new[] { stream }).CheckError();
+        }
+        finally
         {
-            ViewDimension = VideoProcessorOutputViewDimension.Texture2D,
-            Texture2D = new Texture2DVideoProcessorOutputView { MipSlice = 0 },
-        };
-        using ID3D11VideoProcessorOutputView outputView =
-            _videoDevice.CreateVideoProcessorOutputView(destination, _videoProcessorEnumerator, outputViewDescription);
-
-        var stream = new VideoProcessorStream { Enable = true, InputSurface = inputView };
-        _videoContext.VideoProcessorBlt(_videoProcessor, outputView, 0, new[] { stream }).CheckError();
+            sourceTexture.Dispose();
+        }
 
         return true;
     }
@@ -293,8 +304,10 @@ sealed class H264LiveDecoder : IVideoFrameSource, IDisposable
         _videoDevice.Dispose();
         lock (_lock)
         {
-            _latestTexture?.Dispose();
-            _latestTexture = null;
+            while (_frameQueue.Count > 0)
+            {
+                _frameQueue.Dequeue().Texture.Dispose();
+            }
         }
     }
 }

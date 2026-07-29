@@ -34,7 +34,11 @@ final class StreamingController {
 
     var onStatusChange: ((String) -> Void)?
 
-    init(controlPort: UInt16 = 47632, videoPort: UInt16 = 47633, width: Int = 1920, height: Int = 1080, fps: Int = 30) {
+    // El ritmo de captura medido quedaba estancado en ~23fps sin importar el bitrate
+    // (probado a 6, 2.5 y 1.5 Mbps, siempre igual) — evidencia de que el techo es
+    // cuánto puede procesar el encoder por segundo a esta resolución, no la red. Bajar
+    // a 1280x720 reduce los píxeles a encodear un ~56%, para acercarse a 30fps reales.
+    init(controlPort: UInt16 = 47632, videoPort: UInt16 = 47633, width: Int = 1280, height: Int = 720, fps: Int = 30) {
         self.controlPort = controlPort
         self.videoPort = videoPort
         self.width = width

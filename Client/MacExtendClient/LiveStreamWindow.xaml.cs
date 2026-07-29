@@ -19,9 +19,11 @@ public partial class LiveStreamWindow : Window
     private const int VideoPort = 47633;
 
     // Misma resolución fija que usa el Server (StreamingController) — negociar la
-    // resolución real es explícitamente Fase 4.
-    private const int VideoWidth = 1920;
-    private const int VideoHeight = 1080;
+    // resolución real es explícitamente Fase 4. Bajada a 720p junto con el Server:
+    // el ritmo de captura del lado Mac quedaba estancado en ~23fps a 1080p sin
+    // importar el bitrate, evidencia de que el techo era encode, no red.
+    private const int VideoWidth = 1280;
+    private const int VideoHeight = 720;
 
     private readonly string _serverHost;
     private readonly CancellationTokenSource _cts = new();

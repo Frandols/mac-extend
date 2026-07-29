@@ -9,9 +9,12 @@ Especificación completa: [`docs/spec.md`](docs/spec.md).
 ## Componentes
 
 - **Server** (`Server/`) — app macOS en Swift/SwiftUI. Crea ghost displays, captura con
-  ScreenCaptureKit, codifica en H.264 con VideoToolbox y transmite el video.
-- **Client** (`Client/`) — app Windows en C#/.NET + WPF. Descubre servers, decodifica y
-  renderiza el video en pantalla completa. Todavía no implementado.
+  ScreenCaptureKit, transmite el video por WebRTC (`stasel/WebRTC`) y sirve el Client
+  web (HTTP + WebSocket de señalización, vía `httpswift/swifter`).
+- **Client-Web** (`Client-Web/`) — SPA en React + TypeScript (Vite), servida por el
+  propio Server. Se abre en un navegador (Edge en Windows, en modo kiosk) y usa el
+  WebRTC nativo del navegador para decodificar y renderizar el video — sin instalar
+  nada en la PC Windows más que un navegador.
 
 ## Estado de las fases
 
@@ -21,7 +24,7 @@ Fases según `docs/spec.md` §10:
 |---|------|--------|
 | 1 | Prototipo de video local (Server) | ✅ Completa |
 | 2 | Client mínimo (reproduce archivo pregrabado) | ✅ Completa |
-| 3 | Conexión de red básica, sin encriptar | ✅ Completa (streaming en vivo + decode/render funcionando; falta optimizar latencia/fluidez) |
+| 3 | Conexión de red básica, sin encriptar | ✅ Completa (streaming en vivo por WebRTC, Client web) |
 | 4 | Multi-monitor | ⬜ Pendiente |
 | 5 | Descubrimiento automático (mDNS) | ⬜ Pendiente |
 | 6 | Seguridad (TLS, PIN, SRTP) | ⬜ Pendiente |
@@ -54,17 +57,35 @@ involucrado, pero al no ser pública, Apple puede cambiar sus internals entre ve
 de macOS sin aviso. Si falla en runtime, el plan B documentado en la spec es implementar
 un driver de pantalla virtual vía DriverKit.
 
-## Client — desarrollo
+### Nota sobre `SignalingServer`
 
-Requiere el [.NET 8 SDK](https://dotnet.microsoft.com/download) (o superior) en Windows.
+Un navegador no puede abrir sockets TCP crudos, así que la señalización WebRTC
+(SDP offer/answer, candidatos ICE) viaja por WebSocket (`/signaling`), servido por el
+mismo `HttpServer` de Swifter que sirve la SPA de React (`/`) — mismo origen, sin
+CORS. Se mantiene un `NWListener` chico y separado solo para el anuncio Bonjour (dispara
+el prompt de permiso de Red Local; Swifter usa sockets propios fuera de
+`Network.framework` y no lo dispara por sí solo).
+
+## Client-Web — desarrollo
+
+Requiere [Node.js](https://nodejs.org/).
 
 ```bash
-cd Client
-dotnet build
-dotnet run --project MacExtendClient -- "C:\ruta\al\video.mp4"
+cd Client-Web
+npm install
+npm run dev      # servidor de desarrollo con hot reload, apunta a un Server ya corriendo
 ```
 
-Sin argumento, busca `sample.mp4` junto al ejecutable. El pipeline de decode/render usa
-Media Foundation (`IMFMediaEngine`, con Device Manager DXGI para decode por hardware) y
-Direct3D11 (swapchain propio vía `HwndHost`, sin pasar por la composición software de
-WPF), a través de los paquetes [Vortice.Windows](https://github.com/amerkoleci/Vortice.Windows).
+Para que el Server lo sirva de verdad, hay que buildearlo y copiar el resultado a los
+recursos del Server:
+
+```bash
+cd Client-Web
+npm run build
+rm -rf ../Server/Resources/WebClient/*
+cp -R dist/. ../Server/Resources/WebClient/
+cd ../Server && xcodegen generate
+```
+
+En Windows, `Client-Web/launch-kiosk.bat` abre Edge en modo kiosk (fullscreen, sin
+chrome del navegador) apuntando al Server — no hace falta instalar nada más.

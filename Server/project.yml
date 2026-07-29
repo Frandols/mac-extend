@@ -9,6 +9,9 @@ packages:
   WebRTC:
     url: https://github.com/stasel/WebRTC.git
     exactVersion: 150.0.0
+  Swifter:
+    url: https://github.com/httpswift/swifter.git
+    exactVersion: 1.5.0
 
 targets:
   MacExtendServer:
@@ -17,6 +20,11 @@ targets:
     deploymentTarget: "14.0"
     sources:
       - path: Sources
+      # Build de Client-Web (Vite+React) — referencia de carpeta (no glob) para
+      # preservar la estructura de subcarpetas (assets/) que index.html espera.
+      - path: Resources/WebClient
+        type: folder
+        buildPhase: resources
     info:
       path: Sources/App/Info.plist
       properties:
@@ -33,6 +41,7 @@ targets:
           - _macextend._tcp
     dependencies:
       - package: WebRTC
+      - package: Swifter
     settings:
       base:
         PRODUCT_BUNDLE_IDENTIFIER: com.macextend.server

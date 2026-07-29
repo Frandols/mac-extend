@@ -61,10 +61,10 @@ struct Phase1TestView: View {
 
             Divider()
 
-            Text("Fase 3a — Streaming en vivo")
+            Text("Fase 3 — Streaming en vivo (WebRTC)")
                 .font(.title3.bold())
 
-            Text("Escucha en el puerto 47632. Al conectarse un client, crea el ghost display y transmite por RTP/UDP al puerto 47633.")
+            Text("Sirve la página del Client en el puerto 47635 — abrila desde un navegador en Windows. Al conectarse, crea el ghost display y transmite por WebRTC.")
                 .font(.callout)
                 .foregroundStyle(.secondary)
                 .multilineTextAlignment(.center)

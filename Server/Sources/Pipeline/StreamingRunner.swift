@@ -1,18 +1,18 @@
 import Foundation
 
-/// Envuelve StreamingController para exponer su estado a la UI de SwiftUI.
+/// Envuelve SignalingServer para exponer su estado a la UI de SwiftUI.
 @MainActor
 final class StreamingRunner: ObservableObject {
     @Published var status: String = "Detenido."
     @Published var isRunning = false
 
-    private var controller: StreamingController?
+    private var server: SignalingServer?
 
     func start() {
         guard !isRunning else { return }
 
-        let controller = StreamingController()
-        controller.onStatusChange = { [weak self] message in
+        let server = SignalingServer()
+        server.onStatusChange = { [weak self] message in
             FileLogger.append("Status: \(message)")
             Task { @MainActor in
                 self?.status = message
@@ -20,8 +20,8 @@ final class StreamingRunner: ObservableObject {
         }
 
         do {
-            try controller.start()
-            self.controller = controller
+            try server.start()
+            self.server = server
             isRunning = true
         } catch {
             status = "Error: \(error.localizedDescription)"
@@ -29,8 +29,8 @@ final class StreamingRunner: ObservableObject {
     }
 
     func stop() {
-        controller?.stop()
-        controller = nil
+        server?.stop()
+        server = nil
         isRunning = false
         status = "Detenido."
     }

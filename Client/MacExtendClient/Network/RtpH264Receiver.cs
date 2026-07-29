@@ -19,16 +19,23 @@ sealed class RtpH264Receiver : IDisposable
     private readonly List<byte> _frameBuffer = new();
     private List<byte>? _fuReassembly;
     private bool _sawKeyframe;
+    private ushort? _lastSequenceNumber;
+    private bool _frameCorrupted;
 
     public event Action<byte[]>? FrameReceived;
 
     public long PacketsReceived { get; private set; }
     public long FramesReceived { get; private set; }
     public long BytesReceived { get; private set; }
+    public long FramesDropped { get; private set; }
 
     public RtpH264Receiver(int port)
     {
         _udpClient = new UdpClient(port);
+        // Buffer por defecto del SO puede quedarse corto ante ráfagas grandes (un
+        // keyframe de 1080p fragmentado en decenas de paquetes llegando casi
+        // simultáneos), causando drops a nivel de SO antes de que la app los vea.
+        _udpClient.Client.ReceiveBufferSize = 4 * 1024 * 1024;
     }
 
     public async Task RunAsync(CancellationToken cancellationToken)
@@ -65,6 +72,9 @@ sealed class RtpH264Receiver : IDisposable
         const int payloadOffset = 12;
         if (payloadOffset >= packet.Length) return;
 
+        ushort sequenceNumber = (ushort)((packet[2] << 8) | packet[3]);
+        CheckSequenceGap(sequenceNumber);
+
         byte nalHeader = packet[payloadOffset];
         byte nalType = (byte)(nalHeader & 0x1F);
 
@@ -81,6 +91,23 @@ sealed class RtpH264Receiver : IDisposable
         {
             CompleteFrame();
         }
+    }
+
+    /// <summary>
+    /// UDP no garantiza orden ni entrega. Si el WiFi reordena o pierde un paquete a
+    /// mitad de un frame (típicamente un keyframe fragmentado en FU-A), no queremos
+    /// armar un NAL corrupto y pasárselo igual al decoder — eso puede dejarlo en mal
+    /// estado hasta el próximo keyframe. Solo detectamos el hueco (sin reordenar ni
+    /// esperar fragmentos tardíos, que agregaría latencia); el frame se descarta
+    /// entero en CompleteFrame().
+    /// </summary>
+    private void CheckSequenceGap(ushort sequenceNumber)
+    {
+        if (_lastSequenceNumber.HasValue && (ushort)(_lastSequenceNumber.Value + 1) != sequenceNumber)
+        {
+            _frameCorrupted = true;
+        }
+        _lastSequenceNumber = sequenceNumber;
     }
 
     private void ProcessFuA(byte[] packet, int payloadOffset)
@@ -136,7 +163,19 @@ sealed class RtpH264Receiver : IDisposable
 
     private void CompleteFrame()
     {
-        if (_frameBuffer.Count == 0) return;
+        if (_frameBuffer.Count == 0)
+        {
+            _frameCorrupted = false;
+            return;
+        }
+
+        if (_frameCorrupted)
+        {
+            FramesDropped++;
+            _frameCorrupted = false;
+            _frameBuffer.Clear();
+            return;
+        }
 
         _sawKeyframe = true;
         FramesReceived++;

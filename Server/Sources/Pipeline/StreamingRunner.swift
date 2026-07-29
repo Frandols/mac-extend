@@ -13,6 +13,7 @@ final class StreamingRunner: ObservableObject {
 
         let controller = StreamingController()
         controller.onStatusChange = { [weak self] message in
+            FileLogger.append("Status: \(message)")
             Task { @MainActor in
                 self?.status = message
             }

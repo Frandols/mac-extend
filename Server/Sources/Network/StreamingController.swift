@@ -23,6 +23,15 @@ final class StreamingController {
     private let capture = DisplayCapture()
     private let encoder = H264LiveEncoder()
 
+    // Diagnóstico: cuántos frames de captura se saltean por backpressure (sender
+    // ocupado) vs. cuántos efectivamente se mandan a encodear. Se loggea cada
+    // diagnosticsLogInterval frames capturados para tener números concretos sobre
+    // dónde está el cuello de botella real, sin instrumentar más a ciegas.
+    private var framesCaptured = 0
+    private var framesEncoded = 0
+    private var framesSkipped = 0
+    private let diagnosticsLogInterval = 60
+
     var onStatusChange: ((String) -> Void)?
 
     init(controlPort: UInt16 = 47632, videoPort: UInt16 = 47633, width: Int = 1920, height: Int = 1080, fps: Int = 30) {
@@ -126,8 +135,28 @@ final class StreamingController {
             encoder.onError = { [weak self] error in
                 self?.onStatusChange?("Error de encoding: \(error.localizedDescription)")
             }
+            framesCaptured = 0
+            framesEncoded = 0
+            framesSkipped = 0
+
             capture.onFrame = { [weak self] sampleBuffer in
-                self?.encoder.encode(sampleBuffer: sampleBuffer)
+                guard let self else { return }
+                self.framesCaptured += 1
+
+                if self.sender?.isBusy == true {
+                    // La red todavía no terminó de mandar el frame anterior — no
+                    // vale la pena encodear este (el encoder no gasta CPU en un
+                    // frame que de todos modos llegaría tarde, y no le agregamos más
+                    // trabajo a una cola de red ya atrasada).
+                    self.framesSkipped += 1
+                } else {
+                    self.framesEncoded += 1
+                    self.encoder.encode(sampleBuffer: sampleBuffer)
+                }
+
+                if self.framesCaptured % self.diagnosticsLogInterval == 0 {
+                    FileLogger.append("Capturados: \(self.framesCaptured)  Encodeados: \(self.framesEncoded)  Salteados (backpressure): \(self.framesSkipped)")
+                }
             }
             capture.onError = { [weak self] error in
                 self?.onStatusChange?("Error de captura: \(error.localizedDescription)")

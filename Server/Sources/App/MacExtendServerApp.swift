@@ -2,6 +2,13 @@ import SwiftUI
 
 @main
 struct MacExtendServerApp: App {
+    init() {
+        // Sin esto, print() queda bufferizado por bloques cuando stdout no es una
+        // terminal (p.ej. redirigido a un archivo con `open --stdout`), y los logs de
+        // diagnóstico de StreamingController no se ven hasta que el proceso termina.
+        setbuf(stdout, nil)
+    }
+
     var body: some Scene {
         WindowGroup {
             Phase1TestView()

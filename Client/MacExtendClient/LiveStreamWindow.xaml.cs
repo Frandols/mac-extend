@@ -126,7 +126,7 @@ public partial class LiveStreamWindow : Window
         if (_receiver == null || _decoder == null) return;
         string status =
             $"Paquetes: {_receiver.PacketsReceived}   Frames recibidos: {_receiver.FramesReceived}   " +
-            $"Frames decodificados: {_decoder.FramesDecoded}";
+            $"Frames decodificados: {_decoder.FramesDecoded}   Frames descartados: {_receiver.FramesDropped}";
 
         // El texto de estado queda tapado por VideoHost (HwndHost siempre se dibuja por
         // encima del contenido WPF normal — "airspace"), así que también lo mandamos a

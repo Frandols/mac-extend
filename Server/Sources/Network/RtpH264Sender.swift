@@ -13,6 +13,22 @@ final class RtpH264Sender {
     private let payloadType: UInt8 = 96
     private let maxPayloadSize = 1200
 
+    // Protege pendingPacketCount: sendPacket corre en la output queue de captura,
+    // mientras que las completions de NWConnection.send corren en su propia queue
+    // (.global(qos: .userInteractive)).
+    private let pendingLock = NSLock()
+    private var pendingPacketCount = 0
+
+    /// true mientras haya paquetes del último frame todavía sin confirmar por el SO.
+    /// Lo usa StreamingController para no seguir alimentando al encoder si la red
+    /// todavía no absorbió lo anterior — evita que la latencia crezca sin límite
+    /// (bufferbloat del lado emisor).
+    var isBusy: Bool {
+        pendingLock.lock()
+        defer { pendingLock.unlock() }
+        return pendingPacketCount > 0
+    }
+
     init(host: NWEndpoint.Host, port: UInt16) {
         connection = NWConnection(
             host: host,
@@ -79,6 +95,16 @@ final class RtpH264Sender {
         packet.append(payload)
 
         sequenceNumber = sequenceNumber &+ 1
-        connection.send(content: packet, completion: .contentProcessed { _ in })
+
+        pendingLock.lock()
+        pendingPacketCount += 1
+        pendingLock.unlock()
+
+        connection.send(content: packet, completion: .contentProcessed { [weak self] _ in
+            guard let self else { return }
+            self.pendingLock.lock()
+            self.pendingPacketCount -= 1
+            self.pendingLock.unlock()
+        })
     }
 }

@@ -55,8 +55,18 @@ final class H264LiveEncoder {
         try set(newSession, kVTCompressionPropertyKey_RealTime, kCFBooleanTrue)
         try set(newSession, kVTCompressionPropertyKey_AllowFrameReordering, kCFBooleanFalse)
         try set(newSession, kVTCompressionPropertyKey_ProfileLevel, kVTProfileLevel_H264_High_AutoLevel)
-        try set(newSession, kVTCompressionPropertyKey_MaxKeyFrameInterval, NSNumber(value: fps * 2))
+        try set(newSession, kVTCompressionPropertyKey_MaxKeyFrameInterval, NSNumber(value: fps))
         try set(newSession, kVTCompressionPropertyKey_ExpectedFrameRate, NSNumber(value: fps))
+
+        // Sin cap, VideoToolbox puede generar picos muy por encima de lo que soporta
+        // el WiFi (sobre todo con contenido de pantalla con texto/movimiento), lo que
+        // satura la cola de envío UDP y hace crecer la latencia con el tiempo
+        // ("bufferbloat") en vez de descartar frames. 6 Mbps es cómodo para 1080p30
+        // de screen content sobre WiFi 5GHz.
+        let averageBitRate = 6_000_000
+        try set(newSession, kVTCompressionPropertyKey_AverageBitRate, NSNumber(value: averageBitRate))
+        try set(newSession, kVTCompressionPropertyKey_DataRateLimits,
+                [NSNumber(value: averageBitRate / 8), NSNumber(value: 1)] as CFArray)
 
         VTCompressionSessionPrepareToEncodeFrames(newSession)
         session = newSession

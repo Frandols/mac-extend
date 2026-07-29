@@ -5,6 +5,11 @@ options:
     macOS: "14.0"
   createIntermediateGroups: true
 
+packages:
+  WebRTC:
+    url: https://github.com/stasel/WebRTC.git
+    exactVersion: 150.0.0
+
 targets:
   MacExtendServer:
     type: application
@@ -26,6 +31,8 @@ targets:
         # otros dispositivos se descartan en silencio.
         NSBonjourServices:
           - _macextend._tcp
+    dependencies:
+      - package: WebRTC
     settings:
       base:
         PRODUCT_BUNDLE_IDENTIFIER: com.macextend.server

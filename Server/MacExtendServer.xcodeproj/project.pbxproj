@@ -7,13 +7,14 @@
 	objects = {
 
 /* Begin PBXBuildFile section */
-		1B2B31153FE1C9A43C1DCB42 /* RtpH264Sender.swift in Sources */ = {isa = PBXBuildFile; fileRef = 8C949C226C40C422CF543117 /* RtpH264Sender.swift */; };
 		1E6A88BC2F8E0844AA79E8DE /* FileLogger.swift in Sources */ = {isa = PBXBuildFile; fileRef = A2CF375E6DBBFCBCC7CD25F8 /* FileLogger.swift */; };
-		26036746613ECC70A2492346 /* H264LiveEncoder.swift in Sources */ = {isa = PBXBuildFile; fileRef = 0AC709CAFCF251A3B355714B /* H264LiveEncoder.swift */; };
 		43DB7C7431F701CD1358FF22 /* StreamingController.swift in Sources */ = {isa = PBXBuildFile; fileRef = 829896F111C8A46DC9F7D1DD /* StreamingController.swift */; };
 		7AA633A5976DD42F56490D3C /* MacExtendServerApp.swift in Sources */ = {isa = PBXBuildFile; fileRef = 65A583B78F8411FE16C6C0F8 /* MacExtendServerApp.swift */; };
+		7D6CDF2C8B3C643805F6F266 /* SignalingMessage.swift in Sources */ = {isa = PBXBuildFile; fileRef = 44F9FAA0A840255AA9B397AF /* SignalingMessage.swift */; };
 		8D9E55E9B21988A319ADB781 /* VideoFileWriter.swift in Sources */ = {isa = PBXBuildFile; fileRef = A8059FEC4D29A1B96254994B /* VideoFileWriter.swift */; };
+		A875AF4E8B9C7FA0BDB9A426 /* WebRTC in Frameworks */ = {isa = PBXBuildFile; productRef = 4A5AC893B312816882DAD707 /* WebRTC */; };
 		AC0A5ED1E27E7992DC9F4060 /* StreamingRunner.swift in Sources */ = {isa = PBXBuildFile; fileRef = 3852A43DD0C45AB21CCFB52C /* StreamingRunner.swift */; };
+		BC45ED6032527F5C8CA5F05C /* WebRTCStreamer.swift in Sources */ = {isa = PBXBuildFile; fileRef = 97A932EA028D1CFF9BD5CE31 /* WebRTCStreamer.swift */; };
 		C0BD808FCD3FE39DC79E4E0A /* GhostDisplayManager.swift in Sources */ = {isa = PBXBuildFile; fileRef = 0A6ACA05E6ACCABCD85DCA5F /* GhostDisplayManager.swift */; };
 		C529586322321A4A541C6F45 /* DisplayCapture.swift in Sources */ = {isa = PBXBuildFile; fileRef = 9CDA894B843FC2423EA1CB73 /* DisplayCapture.swift */; };
 		EE7B1EBC9D210182E9D61FB5 /* Phase1Runner.swift in Sources */ = {isa = PBXBuildFile; fileRef = 9EA23F1B0E93CA117CBAA195 /* Phase1Runner.swift */; };
@@ -21,13 +22,13 @@
 
 /* Begin PBXFileReference section */
 		0A6ACA05E6ACCABCD85DCA5F /* GhostDisplayManager.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = GhostDisplayManager.swift; sourceTree = "<group>"; };
-		0AC709CAFCF251A3B355714B /* H264LiveEncoder.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = H264LiveEncoder.swift; sourceTree = "<group>"; };
 		3852A43DD0C45AB21CCFB52C /* StreamingRunner.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = StreamingRunner.swift; sourceTree = "<group>"; };
 		44D47EB637B256F044ADD8F7 /* MacExtendServer.app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; path = MacExtendServer.app; sourceTree = BUILT_PRODUCTS_DIR; };
+		44F9FAA0A840255AA9B397AF /* SignalingMessage.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SignalingMessage.swift; sourceTree = "<group>"; };
 		65A583B78F8411FE16C6C0F8 /* MacExtendServerApp.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MacExtendServerApp.swift; sourceTree = "<group>"; };
 		829896F111C8A46DC9F7D1DD /* StreamingController.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = StreamingController.swift; sourceTree = "<group>"; };
-		8C949C226C40C422CF543117 /* RtpH264Sender.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = RtpH264Sender.swift; sourceTree = "<group>"; };
 		91D2C248E13F0C351A06009F /* CGVirtualDisplay-Bridging-Header.h */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.c.h; path = "CGVirtualDisplay-Bridging-Header.h"; sourceTree = "<group>"; };
+		97A932EA028D1CFF9BD5CE31 /* WebRTCStreamer.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = WebRTCStreamer.swift; sourceTree = "<group>"; };
 		9CDA894B843FC2423EA1CB73 /* DisplayCapture.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = DisplayCapture.swift; sourceTree = "<group>"; };
 		9EA23F1B0E93CA117CBAA195 /* Phase1Runner.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Phase1Runner.swift; sourceTree = "<group>"; };
 		A2CF375E6DBBFCBCC7CD25F8 /* FileLogger.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = FileLogger.swift; sourceTree = "<group>"; };
@@ -35,13 +36,24 @@
 		DAFCBF3FEF83DEEE4300E0BF /* Info.plist */ = {isa = PBXFileReference; lastKnownFileType = text.plist; path = Info.plist; sourceTree = "<group>"; };
 /* End PBXFileReference section */
 
+/* Begin PBXFrameworksBuildPhase section */
+		08036DA0D1F3729628DF89FE /* Frameworks */ = {
+			isa = PBXFrameworksBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+				A875AF4E8B9C7FA0BDB9A426 /* WebRTC in Frameworks */,
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+/* End PBXFrameworksBuildPhase section */
+
 /* Begin PBXGroup section */
 		0E8DF4555B15BEA1E8B1E1EE /* Network */ = {
 			isa = PBXGroup;
 			children = (
-				0AC709CAFCF251A3B355714B /* H264LiveEncoder.swift */,
-				8C949C226C40C422CF543117 /* RtpH264Sender.swift */,
+				44F9FAA0A840255AA9B397AF /* SignalingMessage.swift */,
 				829896F111C8A46DC9F7D1DD /* StreamingController.swift */,
+				97A932EA028D1CFF9BD5CE31 /* WebRTCStreamer.swift */,
 			);
 			path = Network;
 			sourceTree = "<group>";
@@ -127,6 +139,7 @@
 			buildConfigurationList = E121CF4FB3697841991B95AE /* Build configuration list for PBXNativeTarget "MacExtendServer" */;
 			buildPhases = (
 				9F198A8938429C86D08DF30D /* Sources */,
+				08036DA0D1F3729628DF89FE /* Frameworks */,
 			);
 			buildRules = (
 			);
@@ -134,6 +147,7 @@
 			);
 			name = MacExtendServer;
 			packageProductDependencies = (
+				4A5AC893B312816882DAD707 /* WebRTC */,
 			);
 			productName = MacExtendServer;
 			productReference = 44D47EB637B256F044ADD8F7 /* MacExtendServer.app */;
@@ -162,6 +176,9 @@
 			);
 			mainGroup = BC3CC7A5DB22F9A0B3914817;
 			minimizedProjectReferenceProxies = 1;
+			packageReferences = (
+				CD7045299DCBF8D5C693F724 /* XCRemoteSwiftPackageReference "WebRTC" */,
+			);
 			preferredProjectObjectVersion = 77;
 			productRefGroup = 9D94334A3E0B5527DAB5CE61 /* Products */;
 			projectDirPath = "";
@@ -180,13 +197,13 @@
 				C529586322321A4A541C6F45 /* DisplayCapture.swift in Sources */,
 				1E6A88BC2F8E0844AA79E8DE /* FileLogger.swift in Sources */,
 				C0BD808FCD3FE39DC79E4E0A /* GhostDisplayManager.swift in Sources */,
-				26036746613ECC70A2492346 /* H264LiveEncoder.swift in Sources */,
 				7AA633A5976DD42F56490D3C /* MacExtendServerApp.swift in Sources */,
 				EE7B1EBC9D210182E9D61FB5 /* Phase1Runner.swift in Sources */,
-				1B2B31153FE1C9A43C1DCB42 /* RtpH264Sender.swift in Sources */,
+				7D6CDF2C8B3C643805F6F266 /* SignalingMessage.swift in Sources */,
 				43DB7C7431F701CD1358FF22 /* StreamingController.swift in Sources */,
 				AC0A5ED1E27E7992DC9F4060 /* StreamingRunner.swift in Sources */,
 				8D9E55E9B21988A319ADB781 /* VideoFileWriter.swift in Sources */,
+				BC45ED6032527F5C8CA5F05C /* WebRTCStreamer.swift in Sources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
@@ -382,6 +399,25 @@
 			defaultConfigurationName = Debug;
 		};
 /* End XCConfigurationList section */
+
+/* Begin XCRemoteSwiftPackageReference section */
+		CD7045299DCBF8D5C693F724 /* XCRemoteSwiftPackageReference "WebRTC" */ = {
+			isa = XCRemoteSwiftPackageReference;
+			repositoryURL = "https://github.com/stasel/WebRTC.git";
+			requirement = {
+				kind = exactVersion;
+				version = 150.0.0;
+			};
+		};
+/* End XCRemoteSwiftPackageReference section */
+
+/* Begin XCSwiftPackageProductDependency section */
+		4A5AC893B312816882DAD707 /* WebRTC */ = {
+			isa = XCSwiftPackageProductDependency;
+			package = CD7045299DCBF8D5C693F724 /* XCRemoteSwiftPackageReference "WebRTC" */;
+			productName = WebRTC;
+		};
+/* End XCSwiftPackageProductDependency section */
 	};
 	rootObject = 290B2B19A39415E38219A5B4 /* Project object */;
 }

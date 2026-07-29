@@ -1,8 +1,11 @@
 import Network
+import CoreMedia
+import WebRTC
 
 /// Escucha conexiones TCP de control (v1: un solo client a la vez). Al conectarse un
-/// client, crea el ghost display y arranca captura+encoding+envío RTP hacia esa IP; al
-/// desconectarse, destruye todo — así el ghost display nunca queda huérfano.
+/// client, crea el ghost display y negocia una conexión WebRTC (señalización SDP/ICE
+/// sobre esta misma conexión TCP) que hace de transporte del video; al desconectarse,
+/// destruye todo — así el ghost display nunca queda huérfano.
 ///
 /// No es @MainActor a propósito: NWListener/NWConnection invocan sus callbacks
 /// (@Sendable) en la queue que se les pasa (acá siempre `.main`), pero el type checker
@@ -10,37 +13,27 @@ import Network
 final class StreamingController {
 
     private let controlPort: UInt16
-    private let videoPort: UInt16
     private let width: Int
     private let height: Int
     private let fps: Int
 
     private var listener: NWListener?
     private var activeConnection: NWConnection?
-    private var sender: RtpH264Sender?
+    private var streamer: WebRTCStreamer?
+    private var signalingBuffer = Data()
 
     private let ghostDisplay = GhostDisplayManager()
     private let capture = DisplayCapture()
-    private let encoder = H264LiveEncoder()
-
-    // Diagnóstico: cuántos frames de captura se saltean por backpressure (sender
-    // ocupado) vs. cuántos efectivamente se mandan a encodear. Se loggea cada
-    // diagnosticsLogInterval frames capturados para tener números concretos sobre
-    // dónde está el cuello de botella real, sin instrumentar más a ciegas.
-    private var framesCaptured = 0
-    private var framesEncoded = 0
-    private var framesSkipped = 0
-    private let diagnosticsLogInterval = 60
 
     var onStatusChange: ((String) -> Void)?
 
-    // El ritmo de captura medido quedaba estancado en ~23fps sin importar el bitrate
-    // (probado a 6, 2.5 y 1.5 Mbps, siempre igual) — evidencia de que el techo es
-    // cuánto puede procesar el encoder por segundo a esta resolución, no la red. Bajar
-    // a 1280x720 reduce los píxeles a encodear un ~56%, para acercarse a 30fps reales.
-    init(controlPort: UInt16 = 47632, videoPort: UInt16 = 47633, width: Int = 1280, height: Int = 720, fps: Int = 30) {
+    // El ritmo de captura medido con el pipeline RTP casero quedaba estancado en
+    // ~23fps sin importar el bitrate — evidencia de que el techo era cuánto podía
+    // procesar nuestro encoder por segundo, no la red. Con WebRTC (que encodea con
+    // VideoToolbox por debajo igual, pero con bitrate adaptativo real) 720p sigue
+    // siendo un punto de partida razonable; subir a 1080p es una prueba futura.
+    init(controlPort: UInt16 = 47632, width: Int = 1280, height: Int = 720, fps: Int = 30) {
         self.controlPort = controlPort
-        self.videoPort = videoPort
         self.width = width
         self.height = height
         self.fps = fps
@@ -127,57 +120,117 @@ final class StreamingController {
             let displayID = try ghostDisplay.create(
                 width: width, height: height, refreshRate: Double(fps), name: "MacExtend Ghost Display"
             )
-            try encoder.start(width: width, height: height, fps: fps)
 
-            let sender = RtpH264Sender(host: host, port: videoPort)
-            sender.start()
-            self.sender = sender
+            let streamer = WebRTCStreamer()
+            self.streamer = streamer
 
-            encoder.onEncodedFrame = { [weak self] frame in
-                self?.sender?.send(frame)
+            streamer.onLocalIceCandidate = { [weak self] candidate in
+                self?.sendSignaling(SignalingMessage(
+                    type: "ice", sdp: candidate.sdp,
+                    sdpMLineIndex: candidate.sdpMLineIndex, sdpMid: candidate.sdpMid
+                ))
             }
-            encoder.onError = { [weak self] error in
-                self?.onStatusChange?("Error de encoding: \(error.localizedDescription)")
+            streamer.onConnectionStateChange = { [weak self] state in
+                self?.onStatusChange?("Estado ICE: \(Self.describeIceState(state))")
             }
-            framesCaptured = 0
-            framesEncoded = 0
-            framesSkipped = 0
+            streamer.onError = { [weak self] error in
+                self?.onStatusChange?("Error WebRTC: \(error.localizedDescription)")
+            }
 
             capture.onFrame = { [weak self] sampleBuffer in
-                guard let self else { return }
-                self.framesCaptured += 1
-
-                if self.sender?.isBusy == true {
-                    // La red todavía no terminó de mandar el frame anterior — no
-                    // vale la pena encodear este (el encoder no gasta CPU en un
-                    // frame que de todos modos llegaría tarde, y no le agregamos más
-                    // trabajo a una cola de red ya atrasada).
-                    self.framesSkipped += 1
-                } else {
-                    self.framesEncoded += 1
-                    self.encoder.encode(sampleBuffer: sampleBuffer)
-                }
-
-                if self.framesCaptured % self.diagnosticsLogInterval == 0 {
-                    FileLogger.append("Capturados: \(self.framesCaptured)  Encodeados: \(self.framesEncoded)  Salteados (backpressure): \(self.framesSkipped)")
-                }
+                guard let self, let pixelBuffer = CMSampleBufferGetImageBuffer(sampleBuffer) else { return }
+                let pts = CMSampleBufferGetPresentationTimeStamp(sampleBuffer)
+                let timeStampNs = Int64(pts.seconds * 1_000_000_000)
+                self.streamer?.send(pixelBuffer: pixelBuffer, timeStampNs: timeStampNs)
             }
             capture.onError = { [weak self] error in
                 self?.onStatusChange?("Error de captura: \(error.localizedDescription)")
             }
 
-            Task {
-                do {
-                    try await capture.start(displayID: displayID, width: width, height: height, fps: fps)
-                    onStatusChange?("Streaming a \(hostDescription):\(videoPort)…")
-                } catch {
-                    onStatusChange?("Error iniciando captura: \(error.localizedDescription)")
-                    teardownStream()
+            signalingBuffer.removeAll()
+            startReceivingSignaling()
+
+            streamer.createOffer { [weak self] result in
+                guard let self else { return }
+                switch result {
+                case .success(let sdp):
+                    self.sendSignaling(SignalingMessage(type: "offer", sdp: sdp.sdp, sdpMLineIndex: nil, sdpMid: nil))
+                    Task {
+                        do {
+                            try await self.capture.start(displayID: displayID, width: self.width, height: self.height, fps: self.fps)
+                            self.onStatusChange?("Streaming (WebRTC) a \(hostDescription)…")
+                        } catch {
+                            self.onStatusChange?("Error iniciando captura: \(error.localizedDescription)")
+                            self.teardownStream()
+                        }
+                    }
+                case .failure(let error):
+                    self.onStatusChange?("Error creando offer: \(error.localizedDescription)")
+                    self.teardownStream()
                 }
             }
         } catch {
             onStatusChange?("Error iniciando streaming: \(error.localizedDescription)")
             teardownStream()
+        }
+    }
+
+    // MARK: - Señalización sobre el canal de control
+
+    private func sendSignaling(_ message: SignalingMessage) {
+        guard let connection = activeConnection else { return }
+        guard var data = try? JSONEncoder().encode(message) else { return }
+        data.append(0x0A) // delimitador de línea
+        connection.send(content: data, completion: .contentProcessed { [weak self] error in
+            if let error {
+                self?.onStatusChange?("Error mandando señalización: \(error.localizedDescription)")
+            }
+        })
+    }
+
+    private func startReceivingSignaling() {
+        activeConnection?.receive(minimumIncompleteLength: 1, maximumLength: 65536) { [weak self] data, _, isComplete, error in
+            guard let self else { return }
+            if let data, !data.isEmpty {
+                self.signalingBuffer.append(data)
+                self.processSignalingBuffer()
+            }
+            if let error {
+                self.onStatusChange?("Error de señalización: \(error.localizedDescription)")
+                return
+            }
+            if isComplete {
+                return // conexión cerrada, el stateUpdateHandler ya maneja el teardown
+            }
+            self.startReceivingSignaling()
+        }
+    }
+
+    private func processSignalingBuffer() {
+        while let newlineIndex = signalingBuffer.firstIndex(of: 0x0A) {
+            let lineData = Data(signalingBuffer[signalingBuffer.startIndex..<newlineIndex])
+            signalingBuffer.removeSubrange(signalingBuffer.startIndex...newlineIndex)
+            guard !lineData.isEmpty, let message = try? JSONDecoder().decode(SignalingMessage.self, from: lineData) else {
+                continue
+            }
+            handleSignalingMessage(message)
+        }
+    }
+
+    private func handleSignalingMessage(_ message: SignalingMessage) {
+        switch message.type {
+        case "answer":
+            guard let sdp = message.sdp else { return }
+            streamer?.setRemoteAnswer(sdp: sdp) { [weak self] error in
+                if let error {
+                    self?.onStatusChange?("Error fijando answer: \(error.localizedDescription)")
+                }
+            }
+        case "ice":
+            guard let sdp = message.sdp, let sdpMLineIndex = message.sdpMLineIndex else { return }
+            streamer?.addRemoteIceCandidate(sdp: sdp, sdpMLineIndex: sdpMLineIndex, sdpMid: message.sdpMid)
+        default:
+            onStatusChange?("Mensaje de señalización desconocido: \(message.type)")
         }
     }
 
@@ -189,12 +242,12 @@ final class StreamingController {
     private func teardownStream() {
         activeConnection?.cancel()
         activeConnection = nil
-        sender?.stop()
-        sender = nil
         capture.onFrame = nil
         let captureRef = capture
         Task { try? await captureRef.stop() }
-        encoder.stop()
+        streamer?.close()
+        streamer = nil
+        signalingBuffer.removeAll()
         ghostDisplay.destroy()
     }
 
@@ -204,6 +257,20 @@ final class StreamingController {
         case .ipv6(let address): return "\(address)"
         case .name(let name, _): return name
         @unknown default: return "\(host)"
+        }
+    }
+
+    private static func describeIceState(_ state: RTCIceConnectionState) -> String {
+        switch state {
+        case .new: return "new"
+        case .checking: return "checking"
+        case .connected: return "connected"
+        case .completed: return "completed"
+        case .failed: return "failed"
+        case .disconnected: return "disconnected"
+        case .closed: return "closed"
+        case .count: return "count"
+        @unknown default: return "desconocido"
         }
     }
 }

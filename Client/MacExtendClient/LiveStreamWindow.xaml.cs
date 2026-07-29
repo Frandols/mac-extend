@@ -1,27 +1,26 @@
+using System.Text.Json;
 using System.Windows;
 using System.Windows.Media;
 using System.Windows.Threading;
 using MacExtendClient.Network;
 using MacExtendClient.Video;
+using SIPSorcery.Net;
 using Vortice.Direct3D;
 using Vortice.Direct3D11;
 
 namespace MacExtendClient;
 
 /// <summary>
-/// Ventana kiosk fullscreen que reproduce en vivo el stream RTP/H.264 del Server
-/// (Fase 3b) — decode crudo vía IMFTransform en H264LiveDecoder, en vez del archivo
-/// local que usa MainWindow (Fase 2).
+/// Ventana kiosk fullscreen que reproduce en vivo el stream WebRTC del Server —
+/// decode vía WebRtcVideoSource (SIPSorcery + FFmpeg), en vez del pipeline RTP/H.264
+/// casero que usaba antes (H264LiveDecoder/RtpH264Receiver, eliminados).
 /// </summary>
 public partial class LiveStreamWindow : Window
 {
     private const int ControlPort = 47632;
-    private const int VideoPort = 47633;
 
     // Misma resolución fija que usa el Server (StreamingController) — negociar la
-    // resolución real es explícitamente Fase 4. Bajada a 720p junto con el Server:
-    // el ritmo de captura del lado Mac quedaba estancado en ~23fps a 1080p sin
-    // importar el bitrate, evidencia de que el techo era encode, no red.
+    // resolución real es explícitamente Fase 4.
     private const int VideoWidth = 1280;
     private const int VideoHeight = 720;
 
@@ -33,9 +32,8 @@ public partial class LiveStreamWindow : Window
 
     private ID3D11Device? _device;
     private VideoHost? _videoHost;
-    private H264LiveDecoder? _decoder;
+    private WebRtcVideoSource? _webRtcSource;
     private TcpControlClient? _controlClient;
-    private RtpH264Receiver? _receiver;
 
     public LiveStreamWindow(string serverHost)
     {
@@ -75,26 +73,32 @@ public partial class LiveStreamWindow : Window
         int hwndWidth = (int)SystemParameters.PrimaryScreenWidth;
         int hwndHeight = (int)SystemParameters.PrimaryScreenHeight;
 
-        // El buffer del swapchain va al tamaño nativo del video (no de la pantalla):
-        // H264LiveDecoder copia con CopySubresourceRegion, que no escala. DXGI
-        // (Scaling.Stretch) se encarga de estirar el buffer al HWND al presentar.
         _videoHost = new VideoHost(_device, hwndWidth, hwndHeight, VideoWidth, VideoHeight);
         RootGrid.Children.Insert(0, _videoHost);
 
         try
         {
-            _decoder = new H264LiveDecoder(_device, VideoWidth, VideoHeight);
-            _decoder.DecodeError += OnDecodeError;
-
-            _receiver = new RtpH264Receiver(VideoPort);
-            _receiver.FrameReceived += _decoder.OnFrameReceived;
+            _webRtcSource = new WebRtcVideoSource(_device);
+            _webRtcSource.DecodeError += OnDecodeError;
+            _webRtcSource.ConnectionStateChanged += OnIceConnectionStateChanged;
 
             _controlClient = new TcpControlClient();
             _controlClient.Disconnected += message =>
                 Dispatcher.Invoke(() => StatusText.Text = $"Desconectado: {message}");
+            _controlClient.MessageReceived += OnSignalingMessageReceived;
+
+            _webRtcSource.LocalIceCandidateGenerated += candidate =>
+            {
+                _ = SendSignalingAsync(new SignalingMessage
+                {
+                    Type = "ice",
+                    Sdp = candidate.candidate,
+                    SdpMLineIndex = candidate.sdpMLineIndex,
+                    SdpMid = candidate.sdpMid,
+                });
+            };
 
             await _controlClient.ConnectAsync(_serverHost, ControlPort, _cts.Token);
-            _ = _receiver.RunAsync(_cts.Token);
         }
         catch (Exception ex)
         {
@@ -109,15 +113,67 @@ public partial class LiveStreamWindow : Window
         CompositionTarget.Rendering += OnRendering;
     }
 
+    private async void OnSignalingMessageReceived(string json)
+    {
+        SignalingMessage? message;
+        try
+        {
+            message = JsonSerializer.Deserialize<SignalingMessage>(json);
+        }
+        catch (JsonException)
+        {
+            return;
+        }
+        if (message == null || _webRtcSource == null) return;
+
+        try
+        {
+            switch (message.Type)
+            {
+                case "offer" when message.Sdp != null:
+                    string answerSdp = await _webRtcSource.HandleRemoteOfferAsync(message.Sdp);
+                    await SendSignalingAsync(new SignalingMessage { Type = "answer", Sdp = answerSdp });
+                    break;
+                case "ice" when message.Sdp != null:
+                    _webRtcSource.AddRemoteIceCandidate(
+                        message.Sdp, message.SdpMid, (ushort)(message.SdpMLineIndex ?? 0));
+                    break;
+            }
+        }
+        catch (Exception ex)
+        {
+            OnDecodeError(ex);
+        }
+    }
+
+    private async Task SendSignalingAsync(SignalingMessage message)
+    {
+        if (_controlClient == null) return;
+        string json = JsonSerializer.Serialize(message);
+        try
+        {
+            await _controlClient.SendMessageAsync(json, _cts.Token);
+        }
+        catch (Exception ex)
+        {
+            OnDecodeError(ex);
+        }
+    }
+
+    private void OnIceConnectionStateChanged(RTCIceConnectionState state)
+    {
+        Dispatcher.Invoke(() => StatusText.Text = $"Estado ICE: {state}");
+    }
+
     private void OnDecodeError(Exception ex)
     {
         Dispatcher.Invoke(() =>
         {
-            StatusText.Text = $"Error de decode: {ex.GetType().Name}: {ex.Message}";
+            StatusText.Text = $"Error: {ex.GetType().Name}: {ex.Message}";
             if (!_shownFirstError)
             {
                 _shownFirstError = true;
-                MessageBox.Show(ex.ToString(), "MacExtend Client — Error de decode",
+                MessageBox.Show(ex.ToString(), "MacExtend Client — Error",
                     MessageBoxButton.OK, MessageBoxImage.Warning);
             }
         });
@@ -125,10 +181,8 @@ public partial class LiveStreamWindow : Window
 
     private void UpdateStatus()
     {
-        if (_receiver == null || _decoder == null) return;
-        string status =
-            $"Paquetes: {_receiver.PacketsReceived}   Frames recibidos: {_receiver.FramesReceived}   " +
-            $"Frames decodificados: {_decoder.FramesDecoded}   Frames descartados: {_receiver.FramesDropped}";
+        if (_webRtcSource == null) return;
+        string status = $"Frames decodificados: {_webRtcSource.FramesDecoded}";
 
         // El texto de estado queda tapado por VideoHost (HwndHost siempre se dibuja por
         // encima del contenido WPF normal — "airspace"), así que también lo mandamos a
@@ -139,8 +193,8 @@ public partial class LiveStreamWindow : Window
 
     private void OnRendering(object? sender, EventArgs e)
     {
-        if (_decoder == null || _videoHost == null) return;
-        _videoHost.RenderFrame(_decoder);
+        if (_webRtcSource == null || _videoHost == null) return;
+        _videoHost.RenderFrame(_webRtcSource);
     }
 
     private void OnClosed(object? sender, EventArgs e)
@@ -149,16 +203,12 @@ public partial class LiveStreamWindow : Window
         CompositionTarget.Rendering -= OnRendering;
         _cts.Cancel();
 
-        if (_receiver != null && _decoder != null)
+        if (_webRtcSource != null)
         {
-            _receiver.FrameReceived -= _decoder.OnFrameReceived;
+            _webRtcSource.DecodeError -= OnDecodeError;
+            _webRtcSource.ConnectionStateChanged -= OnIceConnectionStateChanged;
         }
-        if (_decoder != null)
-        {
-            _decoder.DecodeError -= OnDecodeError;
-        }
-        _receiver?.Dispose();
-        _decoder?.Dispose();
+        _webRtcSource?.Dispose();
         _controlClient?.Dispose();
         _device?.Dispose();
     }

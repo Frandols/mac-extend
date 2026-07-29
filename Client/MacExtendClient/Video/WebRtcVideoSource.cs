@@ -37,7 +37,21 @@ sealed class WebRtcVideoSource : IVideoFrameSource, IDisposable
     {
         _device = device;
 
-        FFmpegInit.Initialise();
+        try
+        {
+            FFmpegInit.Initialise();
+        }
+        catch (Exception ex)
+        {
+            // SIPSorceryMedia.FFmpeg necesita los binarios nativos de FFmpeg
+            // instalados en el sistema — no vienen empaquetados en el NuGet. El
+            // mensaje de la excepción original ("Unable to find FFMPEG binaries")
+            // no dice qué hacer, así que lo envolvemos con el fix concreto.
+            throw new InvalidOperationException(
+                "No se encontraron los binarios de FFmpeg. Instalalos con " +
+                "'winget install \"FFmpeg (Shared)\" --version 7.0' en PowerShell " +
+                "y volvé a intentar.", ex);
+        }
 
         _videoSink = new FFmpegVideoEndPoint();
         _videoSink.RestrictFormats(format => format.Codec == VideoCodecsEnum.H264);

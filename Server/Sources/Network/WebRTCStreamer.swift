@@ -61,11 +61,7 @@ final class WebRTCStreamer: NSObject {
         if let sender {
             let parameters = sender.parameters
             if let encoding = parameters.encodings.first {
-                // 15 Mbps ya daba buena calidad; se sube un poco más de margen
-                // (definición) y se pone un piso para que el adaptativo converja
-                // más arriba en vez de arrancar y quedarse conservador.
-                encoding.maxBitrateBps = NSNumber(value: 20_000_000)
-                encoding.minBitrateBps = NSNumber(value: 4_000_000)
+                encoding.maxBitrateBps = NSNumber(value: 15_000_000)
             }
             sender.parameters = parameters
         }

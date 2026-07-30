@@ -207,13 +207,18 @@ final class SignalingServer {
     }
 
     private func teardownStream() {
-        guard currentSession != nil || streamer != nil else { return }
+        // streamer.close() dispara sincrónicamente el callback de estado ICE con
+        // .closed, que vuelve a llamar a este método — hay que dejar streamer en
+        // nil ANTES de cerrar, así la llamada reentrante ve el guard ya cumplido y
+        // no vuelve a recursar (sin esto, era una recursión infinita real: cientos
+        // de "Estado ICE: closed" en el mismo segundo hasta un stack overflow).
+        guard let activeStreamer = streamer else { return }
+        streamer = nil
         currentSession = nil
         capture.onFrame = nil
         let captureRef = capture
         Task { try? await captureRef.stop() }
-        streamer?.close()
-        streamer = nil
+        activeStreamer.close()
         ghostDisplay.destroy()
         onStatusChange?("Client desconectado. Liberando ghost display…")
     }

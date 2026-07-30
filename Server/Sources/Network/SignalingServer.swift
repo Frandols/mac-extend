@@ -46,7 +46,14 @@ final class SignalingServer {
         guard let webRoot = Bundle.main.resourceURL?.appendingPathComponent("WebClient") else {
             throw SignalingServerError.missingWebClientResources
         }
-        httpServer["/"] = shareFilesFromDirectory(webRoot.path)
+        // shareFilesFromDirectory + ":path" no sirve acá: verificado por fuera de
+        // este proyecto que el wildcard de Swifter solo captura UN segmento de ruta
+        // (";path" no matchea "assets/foo.js", solo "foo.js"), y tampoco matchea la
+        // raíz sola. notFoundHandler recibe el path completo del request sin esa
+        // limitación, así que resolvemos el archivo a mano ahí.
+        httpServer.notFoundHandler = { [webRoot] request in
+            Self.staticFileResponse(for: request.path, webRoot: webRoot)
+        }
         httpServer["/signaling"] = websocket(text: { [weak self] session, text in
             self?.handleMessage(text, session: session)
         })
@@ -209,6 +216,33 @@ final class SignalingServer {
         streamer = nil
         ghostDisplay.destroy()
         onStatusChange?("Client desconectado. Liberando ghost display…")
+    }
+
+    /// Resuelve un request path (p.ej. "/assets/index-XXXX.js" o "/") a un archivo
+    /// dentro de webRoot y lo devuelve como respuesta HTTP con el Content-Type
+    /// correcto (shareFilesFromDirectory no setea ninguno, y los módulos JS del
+    /// browser lo necesitan para no rechazar el script).
+    private static func staticFileResponse(for requestPath: String, webRoot: URL) -> HttpResponse {
+        let relativePath = (requestPath == "/" || requestPath.isEmpty) ? "/index.html" : requestPath
+        let fileURL = webRoot.appendingPathComponent(relativePath)
+
+        guard let data = FileManager.default.contents(atPath: fileURL.path) else {
+            return .notFound
+        }
+        let headers = ["Content-Type": contentType(forExtension: fileURL.pathExtension)]
+        return .raw(200, "OK", headers, { writer in
+            try? writer.write(Array(data))
+        })
+    }
+
+    private static func contentType(forExtension ext: String) -> String {
+        switch ext.lowercased() {
+        case "html": return "text/html; charset=utf-8"
+        case "js": return "text/javascript; charset=utf-8"
+        case "css": return "text/css; charset=utf-8"
+        case "svg": return "image/svg+xml"
+        default: return "application/octet-stream"
+        }
     }
 
     private static func describeIceState(_ state: RTCIceConnectionState) -> String {

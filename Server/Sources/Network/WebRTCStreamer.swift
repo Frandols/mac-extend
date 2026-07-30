@@ -50,7 +50,21 @@ final class WebRTCStreamer: NSObject {
         super.init()
 
         self.peerConnection.delegate = self
-        self.peerConnection.add(self.videoTrack, streamIds: ["macextend-stream"])
+        let sender = self.peerConnection.add(self.videoTrack, streamIds: ["macextend-stream"])
+
+        // Sin esto, WebRTC arranca conservador (pensado para internet, no LAN) y el
+        // usuario lo notaba como "buenos fps pero baja calidad" — no es que la red no
+        // dé para más, es que el techo que el propio WebRTC se autoimpone es bajo. Se
+        // le sube el techo bastante alto y se deja que su bitrate adaptativo real
+        // (a diferencia del número fijo que seteábamos a mano en la implementación
+        // RTP casera) decida cuánto usar según la red real.
+        if let sender {
+            let parameters = sender.parameters
+            if let encoding = parameters.encodings.first {
+                encoding.maxBitrateBps = NSNumber(value: 15_000_000)
+            }
+            sender.parameters = parameters
+        }
     }
 
     /// Arranca la negociación: crea el offer, lo fija como local description, y lo

@@ -32,7 +32,10 @@ final class SignalingServer {
 
     var onStatusChange: ((String) -> Void)?
 
-    init(bonjourPort: UInt16 = 47632, httpPort: in_port_t = 47635, width: Int = 1280, height: Int = 720, fps: Int = 30) {
+    // 1280x720 era un límite del encoder VTCompressionSession manejado a mano (no
+    // llegaba a 30fps sostenido en 1080p) — con WebRTC encodeando (y adaptando bitrate
+    // solo) ese techo ya no aplica, así que se vuelve a 1080p.
+    init(bonjourPort: UInt16 = 47632, httpPort: in_port_t = 47635, width: Int = 1920, height: Int = 1080, fps: Int = 30) {
         self.bonjourPort = bonjourPort
         self.httpPort = httpPort
         self.width = width

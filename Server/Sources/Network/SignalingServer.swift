@@ -27,8 +27,10 @@ final class SignalingServer {
     private var currentSession: WebSocketSession?
     private var streamer: WebRTCStreamer?
 
-    private let ghostDisplay = GhostDisplayManager()
-    private let capture = DisplayCapture()
+    // Un ghost display + captura por monitor real de Windows (arrangement que manda
+    // el Client-Web en "hello") — antes esto era una sola instancia fija.
+    private var ghostDisplays: [GhostDisplayManager] = []
+    private var captures: [DisplayCapture] = []
 
     var onStatusChange: ((String) -> Void)?
 
@@ -113,7 +115,7 @@ final class SignalingServer {
     private func route(_ message: SignalingMessage, session: WebSocketSession) {
         switch message.type {
         case "hello":
-            handleHello(session: session)
+            handleHello(displays: message.displays, session: session)
         case "answer":
             guard let sdp = message.sdp else { return }
             streamer?.setRemoteAnswer(sdp: sdp) { [weak self] error in
@@ -130,75 +132,102 @@ final class SignalingServer {
     }
 
     /// Swifter no expone un callback de "conectado" del lado del WebSocket — el
-    /// browser manda este mensaje apenas abre el socket, y es lo que dispara la
-    /// creación del ghost display + oferta SDP (antes se disparaba al aceptar la
-    /// conexión TCP).
-    private func handleHello(session: WebSocketSession) {
+    /// browser manda este mensaje apenas abre el socket, con el arrangement de sus
+    /// monitores reales, y es lo que dispara la creación de un ghost display por
+    /// monitor + una oferta SDP con un track de video por cada uno.
+    private func handleHello(displays: [DisplayInfo]?, session: WebSocketSession) {
         guard currentSession == nil else {
             // v1: un solo client a la vez (spec §6).
             onStatusChange?("Conexión adicional rechazada (ya hay un client activo).")
             return
         }
 
-        onStatusChange?("Client conectado. Creando ghost display…")
+        // Fallback a un solo display con la resolución por defecto si el Client no
+        // mandó arrangement (browser sin Window Management API, o permiso rechazado).
+        let requestedDisplays = (displays?.isEmpty == false)
+            ? displays!
+            : [DisplayInfo(width: width, height: height, x: 0, y: 0, isPrimary: true)]
+
+        onStatusChange?("Client conectado (\(requestedDisplays.count) monitor(es)). Creando ghost displays…")
         currentSession = session
 
-        do {
-            let displayID = try ghostDisplay.create(
-                width: width, height: height, refreshRate: Double(fps), name: "MacExtend Ghost Display"
-            )
+        let streamer = WebRTCStreamer()
+        self.streamer = streamer
 
-            let streamer = WebRTCStreamer()
-            self.streamer = streamer
-
-            streamer.onLocalIceCandidate = { [weak self] candidate in
-                self?.sendSignaling(SignalingMessage(
-                    type: "ice", sdp: candidate.sdp,
-                    sdpMLineIndex: candidate.sdpMLineIndex, sdpMid: candidate.sdpMid
-                ))
+        streamer.onLocalIceCandidate = { [weak self] candidate in
+            self?.sendSignaling(SignalingMessage(
+                type: "ice", sdp: candidate.sdp,
+                sdpMLineIndex: candidate.sdpMLineIndex, sdpMid: candidate.sdpMid
+            ))
+        }
+        streamer.onConnectionStateChange = { [weak self] state in
+            self?.onStatusChange?("Estado ICE: \(Self.describeIceState(state))")
+            if state == .disconnected || state == .failed || state == .closed {
+                self?.teardownStream()
             }
-            streamer.onConnectionStateChange = { [weak self] state in
-                self?.onStatusChange?("Estado ICE: \(Self.describeIceState(state))")
-                if state == .disconnected || state == .failed || state == .closed {
-                    self?.teardownStream()
+        }
+        streamer.onError = { [weak self] error in
+            self?.onStatusChange?("Error WebRTC: \(error.localizedDescription)")
+        }
+
+        // Los ghost displays se ubican a la derecha de la pantalla real de la Mac
+        // (baseX), y encima de eso se aplica la posición relativa que mandó Windows —
+        // así el arrangement entre ellos coincide con el de los monitores reales sin
+        // superponerse con la pantalla real de la Mac.
+        let baseX = GhostDisplayManager.baseOffsetX()
+        var pendingCaptures: [(capture: DisplayCapture, displayID: CGDirectDisplayID, width: Int, height: Int, trackID: String)] = []
+
+        for (index, displayInfo) in requestedDisplays.enumerated() {
+            let trackID = "display-\(index)"
+            let ghostDisplay = GhostDisplayManager()
+            do {
+                let displayID = try ghostDisplay.create(
+                    width: displayInfo.width, height: displayInfo.height, refreshRate: Double(fps),
+                    name: "MacExtend Ghost Display \(index)",
+                    x: baseX + Int32(displayInfo.x), y: Int32(displayInfo.y)
+                )
+                ghostDisplays.append(ghostDisplay)
+
+                let capture = DisplayCapture()
+                capture.onFrame = { [weak self] sampleBuffer in
+                    guard let self, let pixelBuffer = CMSampleBufferGetImageBuffer(sampleBuffer) else { return }
+                    let pts = CMSampleBufferGetPresentationTimeStamp(sampleBuffer)
+                    let timeStampNs = Int64(pts.seconds * 1_000_000_000)
+                    self.streamer?.send(trackID: trackID, pixelBuffer: pixelBuffer, timeStampNs: timeStampNs)
                 }
-            }
-            streamer.onError = { [weak self] error in
-                self?.onStatusChange?("Error WebRTC: \(error.localizedDescription)")
-            }
+                capture.onError = { [weak self] error in
+                    self?.onStatusChange?("Error de captura (\(trackID)): \(error.localizedDescription)")
+                }
+                captures.append(capture)
 
-            capture.onFrame = { [weak self] sampleBuffer in
-                guard let self, let pixelBuffer = CMSampleBufferGetImageBuffer(sampleBuffer) else { return }
-                let pts = CMSampleBufferGetPresentationTimeStamp(sampleBuffer)
-                let timeStampNs = Int64(pts.seconds * 1_000_000_000)
-                self.streamer?.send(pixelBuffer: pixelBuffer, timeStampNs: timeStampNs)
+                streamer.addVideoTrack(id: trackID)
+                pendingCaptures.append((capture, displayID, displayInfo.width, displayInfo.height, trackID))
+            } catch {
+                onStatusChange?("Error creando ghost display \(index): \(error.localizedDescription)")
+                teardownStream()
+                return
             }
-            capture.onError = { [weak self] error in
-                self?.onStatusChange?("Error de captura: \(error.localizedDescription)")
-            }
+        }
 
-            streamer.createOffer { [weak self] result in
-                guard let self else { return }
-                switch result {
-                case .success(let sdp):
-                    self.sendSignaling(SignalingMessage(type: "offer", sdp: sdp.sdp, sdpMLineIndex: nil, sdpMid: nil))
+        streamer.createOffer { [weak self] result in
+            guard let self else { return }
+            switch result {
+            case .success(let sdp):
+                self.sendSignaling(SignalingMessage(type: "offer", sdp: sdp.sdp))
+                for entry in pendingCaptures {
                     Task {
                         do {
-                            try await self.capture.start(displayID: displayID, width: self.width, height: self.height, fps: self.fps)
-                            self.onStatusChange?("Streaming (WebRTC) al Client…")
+                            try await entry.capture.start(displayID: entry.displayID, width: entry.width, height: entry.height, fps: self.fps)
                         } catch {
-                            self.onStatusChange?("Error iniciando captura: \(error.localizedDescription)")
-                            self.teardownStream()
+                            self.onStatusChange?("Error iniciando captura (\(entry.trackID)): \(error.localizedDescription)")
                         }
                     }
-                case .failure(let error):
-                    self.onStatusChange?("Error creando offer: \(error.localizedDescription)")
-                    self.teardownStream()
                 }
+                self.onStatusChange?("Streaming (WebRTC) al Client — \(pendingCaptures.count) monitor(es)…")
+            case .failure(let error):
+                self.onStatusChange?("Error creando offer: \(error.localizedDescription)")
+                self.teardownStream()
             }
-        } catch {
-            onStatusChange?("Error iniciando streaming: \(error.localizedDescription)")
-            teardownStream()
         }
     }
 
@@ -218,12 +247,23 @@ final class SignalingServer {
         guard let activeStreamer = streamer else { return }
         streamer = nil
         currentSession = nil
-        capture.onFrame = nil
-        let captureRef = capture
-        Task { try? await captureRef.stop() }
+
+        let capturesToStop = captures
+        captures = []
+        for capture in capturesToStop {
+            capture.onFrame = nil
+            Task { try? await capture.stop() }
+        }
+
         activeStreamer.close()
-        ghostDisplay.destroy()
-        onStatusChange?("Client desconectado. Liberando ghost display…")
+
+        let displaysToDestroy = ghostDisplays
+        ghostDisplays = []
+        for ghostDisplay in displaysToDestroy {
+            ghostDisplay.destroy()
+        }
+
+        onStatusChange?("Client desconectado. Liberando ghost displays…")
     }
 
     /// Resuelve un request path (p.ej. "/assets/index-XXXX.js" o "/") a un archivo

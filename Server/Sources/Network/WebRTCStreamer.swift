@@ -1,14 +1,13 @@
 import WebRTC
 import CoreMedia
 
-/// Maneja el lado Server de una conexión WebRTC: crea la RTCPeerConnection y un
-/// RTCVideoSource al que se le entregan los CVPixelBuffer que ya entrega
-/// DisplayCapture.onFrame (sin tocar la captura en sí), y expone la señalización
-/// (SDP offer/ICE candidates) vía closures para que StreamingController la mande por
-/// el canal de control TCP existente. Reemplaza a H264LiveEncoder+RtpH264Sender — acá
-/// WebRTC hace el encoding (VideoToolbox por debajo en Apple Silicon), el bitrate
-/// adaptativo y la recuperación de paquetes perdidos, en vez de nuestra
-/// implementación RTP casera.
+/// Maneja el lado Server de una conexión WebRTC: crea la RTCPeerConnection y, por
+/// cada ghost display (uno por monitor real de Windows — ver SignalingServer), un
+/// RTCVideoSource/track separado al que se le entregan los CVPixelBuffer que entrega
+/// el DisplayCapture correspondiente. Expone la señalización (SDP offer/ICE
+/// candidates) vía closures para que SignalingServer la mande por el WebSocket.
+/// WebRTC hace acá el encoding (VideoToolbox por debajo en Apple Silicon), el
+/// bitrate adaptativo y la recuperación de paquetes perdidos.
 final class WebRTCStreamer: NSObject {
 
     private static let factory: RTCPeerConnectionFactory = {
@@ -19,9 +18,12 @@ final class WebRTCStreamer: NSObject {
     }()
 
     private let peerConnection: RTCPeerConnection
-    private let videoSource: RTCVideoSource
-    private let videoTrack: RTCVideoTrack
-    private let dummyCapturer: RTCVideoCapturer
+
+    // Un source/capturer por track (uno por ghost display), buscados por id al
+    // llegar cada frame — antes esto era una sola instancia fija en vez de un
+    // diccionario, cuando solo existía un ghost display posible.
+    private var videoSources: [String: RTCVideoSource] = [:]
+    private var dummyCapturers: [String: RTCVideoCapturer] = [:]
 
     /// Candidato ICE local nuevo, para mandar por el canal de señalización.
     var onLocalIceCandidate: ((RTCIceCandidate) -> Void)?
@@ -37,11 +39,6 @@ final class WebRTCStreamer: NSObject {
 
         let constraints = RTCMediaConstraints(mandatoryConstraints: nil, optionalConstraints: nil)
 
-        let source = Self.factory.videoSource()
-        self.videoSource = source
-        self.videoTrack = Self.factory.videoTrack(with: source, trackId: "macextend-video0")
-        self.dummyCapturer = RTCVideoCapturer(delegate: source)
-
         guard let connection = Self.factory.peerConnection(with: configuration, constraints: constraints, delegate: nil) else {
             fatalError("RTCPeerConnectionFactory no pudo crear una RTCPeerConnection.")
         }
@@ -50,12 +47,22 @@ final class WebRTCStreamer: NSObject {
         super.init()
 
         self.peerConnection.delegate = self
-        let sender = self.peerConnection.add(self.videoTrack, streamIds: ["macextend-stream"])
+    }
 
-        // Sin esto, WebRTC arranca conservador (pensado para internet, no LAN) y el
-        // usuario lo notaba como "buenos fps pero baja calidad" — no es que la red no
-        // dé para más, es que el techo que el propio WebRTC se autoimpone es bajo. Se
-        // le sube el techo bastante alto y se deja que su bitrate adaptativo real
+    /// Agrega un video track nuevo a la conexión (uno por ghost display). Hay que
+    /// llamarlo para todos los displays ANTES de createOffer — el offer resultante
+    /// va a tener un m-line de video por cada track agregado hasta ese momento.
+    func addVideoTrack(id: String) {
+        let source = Self.factory.videoSource()
+        let track = Self.factory.videoTrack(with: source, trackId: id)
+        let capturer = RTCVideoCapturer(delegate: source)
+        videoSources[id] = source
+        dummyCapturers[id] = capturer
+
+        let sender = peerConnection.add(track, streamIds: [id])
+
+        // Sin esto, WebRTC arranca conservador (pensado para internet, no LAN) —
+        // se le sube el techo bastante alto y se deja que su bitrate adaptativo real
         // (a diferencia del número fijo que seteábamos a mano en la implementación
         // RTP casera) decida cuánto usar según la red real.
         if let sender {
@@ -107,12 +114,14 @@ final class WebRTCStreamer: NSObject {
         }
     }
 
-    /// Empuja un frame capturado (mismo CVPixelBuffer que llega a DisplayCapture.onFrame,
-    /// extraído del CMSampleBuffer) a WebRTC para que lo encodee y transmita.
-    func send(pixelBuffer: CVPixelBuffer, timeStampNs: Int64) {
+    /// Empuja un frame capturado (mismo CVPixelBuffer que llega al DisplayCapture del
+    /// ghost display correspondiente) al track `trackID` para que WebRTC lo encodee y
+    /// transmita.
+    func send(trackID: String, pixelBuffer: CVPixelBuffer, timeStampNs: Int64) {
+        guard let source = videoSources[trackID], let capturer = dummyCapturers[trackID] else { return }
         let rtcPixelBuffer = RTCCVPixelBuffer(pixelBuffer: pixelBuffer)
         let videoFrame = RTCVideoFrame(buffer: rtcPixelBuffer, rotation: ._0, timeStampNs: timeStampNs)
-        videoSource.capturer(dummyCapturer, didCapture: videoFrame)
+        source.capturer(capturer, didCapture: videoFrame)
     }
 
     func close() {

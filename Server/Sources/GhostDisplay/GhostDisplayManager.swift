@@ -61,9 +61,37 @@ final class GhostDisplayManager {
         let newDisplayID = CGDirectDisplayID(display.displayID)
         self.displayID = newDisplayID
 
-        try Self.position(displayID: newDisplayID, x: x, y: y)
+        // Posicionar es best-effort: si falla (visto en la práctica con CGError 1001
+        // — probablemente el display todavía no está registrado en
+        // CGGetActiveDisplayList al momento de llamar CGConfigureDisplayOrigin, ver
+        // waitUntilActive abajo), el ghost display sigue funcionando igual, solo que
+        // sin la posición pedida — mejor eso que abortar todo el streaming por algo
+        // que hasta ahora era pura mejora (Extend vs Mirror).
+        do {
+            Self.waitUntilActive(displayID: newDisplayID)
+            try Self.position(displayID: newDisplayID, x: x, y: y)
+        } catch {
+            FileLogger.append("Advertencia: no se pudo posicionar el ghost display (\(error.localizedDescription)) — sigue en su posición por defecto.")
+        }
 
         return newDisplayID
+    }
+
+    /// CGConfigureDisplayOrigin devolvía CGError 1001 (illegal argument) al llamarlo
+    /// inmediatamente después de crear el display — hipótesis: CGGetActiveDisplayList
+    /// todavía no lo tenía registrado en ese instante. Se espera activamente (hasta
+    /// 250ms) a que aparezca antes de intentar posicionarlo.
+    private static func waitUntilActive(displayID: CGDirectDisplayID) {
+        for _ in 0..<25 {
+            var count: UInt32 = 0
+            CGGetActiveDisplayList(0, nil, &count)
+            var displays = [CGDirectDisplayID](repeating: 0, count: Int(count))
+            CGGetActiveDisplayList(count, &displays, &count)
+            if displays.contains(displayID) {
+                return
+            }
+            Thread.sleep(forTimeInterval: 0.01)
+        }
     }
 
     /// Ubica el display en (x, y) del espacio de coordenadas del escritorio, vía las
